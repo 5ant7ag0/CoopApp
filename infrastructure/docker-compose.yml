@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  postgres_db:
+    image: postgres:15-alpine
+    container_name: core_cooperativa_db
+    restart: always
+    environment:
+      POSTGRES_DB: core_cooperativa
+      POSTGRES_USER: core_admin
+      POSTGRES_PASSWORD: CoopSF2026!
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: [
+      "postgres",
+      "-c", "max_connections=150",
+      "-c", "shared_buffers=256MB",
+      "-c", "effective_cache_size=768MB",
+      "-c", "timezone=America/Guayaquil"
+    ]
+
+volumes:
+  postgres_data:
+    driver: local
+
+    
