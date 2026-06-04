@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: backend-core
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/core_cooperativa?stringtype=unspecified
+    username: core_admin
+    password: CoopSF2026!
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 50
+          fetch_size: 100
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api/v1

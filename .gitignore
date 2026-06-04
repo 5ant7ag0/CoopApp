@@ -1,0 +1,43 @@
+# compilacion y empaquetamiento
+target/
+build/
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven wrapper jar (se puede reconstruir, no es necesario subir binarios)
+.mvn/wrapper/maven-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Eclipse
+.metadata/
+bin/
+tmp/
+.tmp/
+.classpath
+.project
+.settings/
+
+# VS Code
+.vscode/
+
+# Archivos del Sistema Operativo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs y temporales
+*.log
+temp/
+tmp/
