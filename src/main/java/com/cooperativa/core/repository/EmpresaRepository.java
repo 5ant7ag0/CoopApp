@@ -8,6 +8,7 @@ import java.util.Optional;
 
 @Repository
 public interface EmpresaRepository extends JpaRepository<Empresa, Integer> {
+    // Los métodos básicos de búsqueda por ID (Tenant ID) ya vienen incluidos por defecto en JpaRepository
 
     // Buscar empresa por RUC para validacion de unicidad
     Optional<Empresa> findByRuc(String ruc);

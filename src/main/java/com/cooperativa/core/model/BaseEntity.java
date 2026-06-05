@@ -18,7 +18,7 @@ public abstract class BaseEntity {
     private Integer empresaId;
 
     /**
-     * antes de insertar un registro en PostgreSQL (JPA Lifecycle)
+     * Gancho automático antes de insertar un registro en PostgreSQL (JPA Lifecycle)
      */
     @PrePersist
     public void prePersist() {

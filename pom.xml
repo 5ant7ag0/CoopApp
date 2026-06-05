@@ -74,6 +74,20 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- Seguridad: Hashing de contrasenas con BCrypt -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- JWT: Generacion y validacion de tokens con Auth0 java-jwt -->
+        <dependency>
+            <groupId>com.auth0</groupId>
+            <artifactId>java-jwt</artifactId>
+            <version>4.4.0</version>
+        </dependency>
+
+
 	</dependencies>
 
 	<build>
