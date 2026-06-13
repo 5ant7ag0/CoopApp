@@ -18,7 +18,12 @@ public class AuditoriaController {
      * URL: http://localhost:8080/api/v1/auditoria
      */
     @GetMapping
-    public ResponseEntity<?> listarAuditoria() {
+    public ResponseEntity<?> listarAuditoria(jakarta.servlet.http.HttpServletRequest request) {
+        String rol = (String) request.getAttribute("authRol");
+        if (!"AUDITOR_INTERNO".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado: Se requiere rol de Auditor Interno para ver las trazas de auditoría.");
+        }
+
         try {
             return ResponseEntity.ok(auditoriaService.obtenerAuditoriaGlobal());
         } catch (Exception e) {

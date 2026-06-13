@@ -7,6 +7,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.TenantId;
 
 @Getter
 @Setter
@@ -14,6 +15,7 @@ import lombok.Setter;
 public abstract class BaseEntity {
 
     // Tablas para identificar la organización
+    @TenantId
     @Column(name = "empresa_id", nullable = false, updatable = false)
     private Integer empresaId;
 

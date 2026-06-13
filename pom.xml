@@ -87,7 +87,23 @@
             <version>4.4.0</version>
         </dependency>
 
+		<!-- PDF: Generación de reportes financieros en PDF nativo -->
+		<dependency>
+			<groupId>com.github.librepdf</groupId>
+			<artifactId>openpdf</artifactId>
+			<version>2.0.3</version>
+		</dependency>
 
+		<!-- Soporte para reintentos automáticos (Serializable Transaccional) -->
+		<dependency>
+			<groupId>org.springframework.retry</groupId>
+			<artifactId>spring-retry</artifactId>
+			<version>2.0.11</version>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aspectj</artifactId>
+		</dependency>
 	</dependencies>
 
 	<build>

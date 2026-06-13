@@ -3,6 +3,10 @@ package com.cooperativa.core.controller;
 import com.cooperativa.core.dto.LoginRequestDTO;
 import com.cooperativa.core.dto.LoginResponseDTO;
 import com.cooperativa.core.dto.SocioRegisterRequestDTO;
+import com.cooperativa.core.dto.UserProfileResponseDTO;
+import com.cooperativa.core.dto.CambioClaveRequestDTO;
+import com.cooperativa.core.dto.SolicitudRecuperacionDTO;
+import com.cooperativa.core.dto.RestablecerClaveRequestDTO;
 import com.cooperativa.core.security.PublicEndpoint;
 import com.cooperativa.core.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,11 +17,10 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * Controlador para la gestion de seguridad, login de canales digitales
- * y registros de acceso. Todo el controlador es publico.
+ * y registros de acceso.
  */
 @RestController
 @RequestMapping("/auth")
-@PublicEndpoint // Permite el acceso sin token JWT previo a todos los metodos de esta clase
 @CrossOrigin(origins = "*")
 public class AuthController {
 
@@ -28,6 +31,7 @@ public class AuthController {
      * Inicio de sesion para personal administrativo de la cooperativa (Backoffice).
      */
     @PostMapping("/admin/login")
+    @PublicEndpoint
     public ResponseEntity<?> loginAdmin(@Valid @RequestBody LoginRequestDTO requestDTO, HttpServletRequest request) {
         String ip = getClientIp(request);
         String userAgent = request.getHeader("User-Agent");
@@ -50,6 +54,7 @@ public class AuthController {
      * Inicio de sesion para socios (Canales Digitales / App Movil).
      */
     @PostMapping("/socio/login")
+    @PublicEndpoint
     public ResponseEntity<?> loginSocio(@Valid @RequestBody LoginRequestDTO requestDTO, HttpServletRequest request) {
         String ip = getClientIp(request);
         String userAgent = request.getHeader("User-Agent");
@@ -72,6 +77,7 @@ public class AuthController {
      * Registro de contrasena digital para un socio que ya existe en el core banking.
      */
     @PostMapping("/socio/registrar")
+    @PublicEndpoint
     public ResponseEntity<?> registrarSocio(@Valid @RequestBody SocioRegisterRequestDTO requestDTO) {
         try {
             authService.registrarCredencialesSocio(requestDTO.getIdentificacion(), requestDTO.getPassword());
@@ -80,6 +86,25 @@ public class AuthController {
             return ResponseEntity.badRequest().body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error en el registro del socio: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Obtiene la informacion del perfil del usuario autenticado actual.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<?> me(HttpServletRequest request) {
+        try {
+            String username = (String) request.getAttribute("authUsername");
+            String rol = (String) request.getAttribute("authRol");
+            Integer tenantId = (Integer) request.getAttribute("authTenantId");
+            if (username == null || rol == null || tenantId == null) {
+                return ResponseEntity.status(401).body("Error: Usuario no autenticado en el contexto.");
+            }
+            UserProfileResponseDTO perfil = authService.obtenerPerfil(username, rol, tenantId);
+            return ResponseEntity.ok(perfil);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 
@@ -105,5 +130,84 @@ public class AuthController {
             return "127.0.0.1";
         }
         return ip;
+    }
+
+    /**
+     * Endpoint para que el socio autenticado cambie su contraseña digital.
+     * URL: POST http://localhost:8080/api/v1/auth/socio/cambiar-clave
+     */
+    @PostMapping("/socio/cambiar-clave")
+    public ResponseEntity<?> cambiarClaveSocio(
+            @Valid @RequestBody CambioClaveRequestDTO requestDTO,
+            HttpServletRequest request) {
+
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
+
+        if (username == null || !"SOCIO".equals(rol)) {
+            return ResponseEntity.status(403).body("Error: Solo los socios autenticados pueden cambiar su clave digital.");
+        }
+
+        try {
+            authService.cambiarClaveSocio(username, requestDTO.getPasswordActual(), requestDTO.getPasswordNueva());
+            return ResponseEntity.ok("Contraseña digital cambiada exitosamente.");
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error interno al cambiar la contraseña: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Endpoint público para solicitar la recuperación de la contraseña digital.
+     * URL: POST http://localhost:8080/api/v1/auth/recuperar/solicitar
+     */
+    @PostMapping("/recuperar/solicitar")
+    @PublicEndpoint
+    public ResponseEntity<?> solicitarRecuperacion(
+            @Valid @RequestBody SolicitudRecuperacionDTO requestDTO,
+            HttpServletRequest request) {
+        String ip = getClientIp(request);
+        String userAgent = request.getHeader("User-Agent");
+        try {
+            authService.solicitarRecuperacion(
+                    requestDTO.getIdentificacion(),
+                    requestDTO.getCanal(),
+                    ip,
+                    userAgent != null ? userAgent : "Desconocido"
+            );
+            return ResponseEntity.ok(java.util.Map.of("message", "Código/enlace de recuperación enviado exitosamente por " + requestDTO.getCanal() + "."));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error interno al solicitar la recuperación: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Endpoint público para validar el token de recuperación y cambiar la contraseña.
+     * URL: POST http://localhost:8080/api/v1/auth/recuperar/validar-cambiar
+     */
+    @PostMapping("/recuperar/validar-cambiar")
+    @PublicEndpoint
+    public ResponseEntity<?> validarYRestablecerClave(
+            @Valid @RequestBody RestablecerClaveRequestDTO requestDTO,
+            HttpServletRequest request) {
+        String ip = getClientIp(request);
+        String userAgent = request.getHeader("User-Agent");
+        try {
+            authService.validarYRestablecerClave(
+                    requestDTO.getIdentificacion(),
+                    requestDTO.getToken(),
+                    requestDTO.getPasswordNueva(),
+                    ip,
+                    userAgent != null ? userAgent : "Desconocido"
+            );
+            return ResponseEntity.ok(java.util.Map.of("message", "Contraseña restablecida y cuenta activada con éxito."));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error interno al restablecer la contraseña: " + e.getMessage());
+        }
     }
 }

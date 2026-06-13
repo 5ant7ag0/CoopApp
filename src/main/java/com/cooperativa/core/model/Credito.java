@@ -57,4 +57,7 @@ public class Credito extends BaseEntity {
 
     @Column(name = "usuario_oficial_id")
     private Integer usuarioOficialId; // Oficial de crédito asignado
+
+    @Column(name = "motivo_rechazo", columnDefinition = "TEXT")
+    private String motivoRechazo;
 }

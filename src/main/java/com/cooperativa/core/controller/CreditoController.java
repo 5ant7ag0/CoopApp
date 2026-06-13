@@ -3,6 +3,7 @@ package com.cooperativa.core.controller;
 import com.cooperativa.core.dto.DesembolsoRequestDTO;
 import com.cooperativa.core.dto.PagoRequestDTO;
 import com.cooperativa.core.model.Credito;
+import com.cooperativa.core.model.CuotasAmortizacion;
 import com.cooperativa.core.service.CreditoService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -36,6 +37,20 @@ public class CreditoController {
         return ResponseEntity.ok(creditoService.obtenerTodos());
     }
 
+    @GetMapping("/mis-creditos")
+    public ResponseEntity<?> obtenerMisCreditos(HttpServletRequest request) {
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
+        if (username == null || !"SOCIO".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado. Solo los socios pueden ver sus créditos.");
+        }
+        try {
+            return ResponseEntity.ok(creditoService.obtenerCreditosSocio(username));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<?> obtenerPorId(@PathVariable Integer id) {
         try {
@@ -46,7 +61,12 @@ public class CreditoController {
     }
 
     @PutMapping("/{id}/aprobar")
-    public ResponseEntity<?> aprobarCredito(@PathVariable Integer id) {
+    public ResponseEntity<?> aprobarCredito(@PathVariable Integer id, HttpServletRequest request) {
+        String rol = (String) request.getAttribute("authRol");
+        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes para aprobar créditos.");
+        }
+
         try {
             return ResponseEntity.ok(creditoService.aprobarCredito(id));
         } catch (Exception e) {
@@ -62,6 +82,11 @@ public class CreditoController {
     public ResponseEntity<?> desembolsar(
             @RequestBody DesembolsoRequestDTO requestDTO,
             HttpServletRequest request) {
+
+        String rol = (String) request.getAttribute("authRol");
+        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol) && !"CAJERO".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes para desembolsar créditos.");
+        }
 
         if (requestDTO.getCreditoId() == null || requestDTO.getCuentaAhorrosId() == null) {
             return ResponseEntity.badRequest().body("Error: Los campos 'creditoId' y 'cuentaAhorrosId' son obligatorios.");
@@ -99,6 +124,8 @@ public class CreditoController {
             @Valid @RequestBody PagoRequestDTO requestDTO,
             HttpServletRequest request) {
 
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
         String ipUsuario = request.getRemoteAddr();
         String dispositivo = request.getHeader("User-Agent");
 
@@ -109,15 +136,69 @@ public class CreditoController {
         try {
             Credito creditoPagado = creditoService.registrarPago(
                     requestDTO,
+                    username,
+                    rol,
                     ipUsuario,
                     dispositivo != null ? dispositivo : "Desconocido"
             );
             return ResponseEntity.ok(creditoPagado);
 
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResponseEntity.badRequest().body(e.getLocalizedMessage());
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error interno en el core financiero: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/{id}/amortizacion")
+    public ResponseEntity<?> obtenerAmortizacion(@PathVariable Integer id, HttpServletRequest request) {
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
+        try {
+            return ResponseEntity.ok(creditoService.obtenerAmortizacion(id, username, rol));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/{id}/revisar")
+    public ResponseEntity<?> revisarCredito(@PathVariable Integer id, HttpServletRequest request) {
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
+        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes.");
+        }
+
+        try {
+            return ResponseEntity.ok(creditoService.revisarCredito(id, username));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/{id}/rechazar")
+    public ResponseEntity<?> rechazarCredito(
+            @PathVariable Integer id,
+            @RequestBody java.util.Map<String, String> payload,
+            HttpServletRequest request) {
+        String rol = (String) request.getAttribute("authRol");
+        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes para rechazar créditos.");
+        }
+
+        String motivo = payload.get("motivo");
+        if (motivo == null || motivo.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("Error: El motivo de rechazo es obligatorio.");
+        }
+
+        try {
+            return ResponseEntity.ok(creditoService.rechazarCredito(id, motivo.trim()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 }

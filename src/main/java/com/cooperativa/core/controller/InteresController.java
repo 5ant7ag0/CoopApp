@@ -1,0 +1,71 @@
+package com.cooperativa.core.controller;
+
+import com.cooperativa.core.dto.DevengoManualRequestDTO;
+import com.cooperativa.core.dto.CapitalizacionManualRequestDTO;
+import com.cooperativa.core.model.DevengoRegistro;
+import com.cooperativa.core.model.CapitalizacionRegistro;
+import com.cooperativa.core.service.InteresAhorroService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/intereses")
+@CrossOrigin(origins = "*")
+public class InteresController {
+
+    @Autowired
+    private InteresAhorroService interesAhorroService;
+
+    /**
+     * Endpoint para ejecutar manualmente el devengo diario de intereses.
+     * URL: POST http://localhost:8080/api/v1/intereses/devengo-manual
+     */
+    @PostMapping("/devengo-manual")
+    public ResponseEntity<?> ejecutarDevengoManual(
+            @Valid @RequestBody DevengoManualRequestDTO dto,
+            HttpServletRequest request) {
+
+        String rol = (String) request.getAttribute("authRol");
+        String username = (String) request.getAttribute("authUsername");
+        if (!"GERENTE_GENERAL".equals(rol) && !"SUPER_ADMIN_SAAS".equals(rol)) {
+            return ResponseEntity.status(403).body("Error: Privilegios insuficientes. Se requiere rol de GERENTE_GENERAL o SUPER_ADMIN_SAAS.");
+        }
+
+        try {
+            DevengoRegistro devengo = interesAhorroService.devengarInteresesDiarios(dto.getFecha(), username);
+            return ResponseEntity.ok(devengo);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error interno al procesar el devengo manual: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Endpoint para ejecutar manualmente la capitalización mensual de intereses.
+     * URL: POST http://localhost:8080/api/v1/intereses/capitalizacion-manual
+     */
+    @PostMapping("/capitalizacion-manual")
+    public ResponseEntity<?> ejecutarCapitalizacionManual(
+            @Valid @RequestBody CapitalizacionManualRequestDTO dto,
+            HttpServletRequest request) {
+
+        String rol = (String) request.getAttribute("authRol");
+        String username = (String) request.getAttribute("authUsername");
+        if (!"GERENTE_GENERAL".equals(rol) && !"SUPER_ADMIN_SAAS".equals(rol)) {
+            return ResponseEntity.status(403).body("Error: Privilegios insuficientes. Se requiere rol de GERENTE_GENERAL o SUPER_ADMIN_SAAS.");
+        }
+
+        try {
+            CapitalizacionRegistro cap = interesAhorroService.capitalizarInteresesMensuales(dto.getAnio(), dto.getMes(), username);
+            return ResponseEntity.ok(cap);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error interno al procesar la capitalización manual: " + e.getMessage());
+        }
+    }
+}

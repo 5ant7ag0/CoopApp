@@ -31,6 +31,12 @@ public class CuentasAhorros extends BaseEntity {
     @Column(nullable = false)
     private BigDecimal saldo = BigDecimal.ZERO;
 
+    @Column(name = "tasa_interes_anual", nullable = false)
+    private BigDecimal tasaInteresAnual = BigDecimal.ZERO;
+
+    @Column(name = "interes_acumulado", nullable = false)
+    private BigDecimal interesAcumulado = BigDecimal.ZERO;
+
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVA";
 

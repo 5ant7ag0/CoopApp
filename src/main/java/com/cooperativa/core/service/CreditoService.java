@@ -5,10 +5,13 @@ import com.cooperativa.core.dto.CuotaSimuladaDTO;
 import com.cooperativa.core.dto.PagoRequestDTO;
 import com.cooperativa.core.model.*;
 import com.cooperativa.core.repository.*;
+import com.cooperativa.core.amortizacion.AmortizacionFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.retry.annotation.Retryable;
+import org.springframework.retry.annotation.Backoff;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
@@ -25,6 +28,9 @@ public class CreditoService {
     private static final MathContext MC = new MathContext(34, RoundingMode.HALF_EVEN);
 
     @Autowired
+    private AmortizacionFactory amortizacionFactory;
+
+    @Autowired
     private CreditoRepository creditoRepository;
 
     @Autowired
@@ -34,7 +40,19 @@ public class CreditoService {
     private CuentasAhorrosRepository cuentasRepository;
 
     @Autowired
+    private SocioRepository socioRepository;
+
+    @Autowired
     private LogsAuditoriaRepository logsRepository;
+
+    @Autowired
+    private LogsAuditoriaService logsAuditoriaService;
+
+    @Autowired
+    private UsuarioAdminRepository usuarioAdminRepository;
+
+    @Autowired
+    private CajaDiariaService cajaDiariaService;
 
     // Inyección de los nuevos componentes de la reingeniería contable
     @Autowired
@@ -50,7 +68,7 @@ public class CreditoService {
     // FUNCIONES CRUD
     // ==========================================
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Credito crearSolicitud(Credito credito) {
         credito.setNumeroCredito("CRE-" + System.currentTimeMillis());
         credito.setEstado("SOLICITADO");
@@ -61,6 +79,17 @@ public class CreditoService {
     public List<Credito> obtenerTodos() {
         Integer tenantId = TenantContext.getCurrentTenant();
         return creditoRepository.findByEmpresaId(tenantId);
+    }
+
+    // LEER TODOS LOS CRÉDITOS DEL SOCIO AUTENTICADO
+    public List<Credito> obtenerCreditosSocio(String username) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede obtener créditos sin especificar la institución (X-Tenant-ID).");
+        }
+        Socio socio = socioRepository.findByIdentificacionAndEmpresaId(username, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Error: Socio no encontrado en esta institución."));
+        return creditoRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
     }
 
     public Credito obtenerPorId(Integer id) {
@@ -85,70 +114,19 @@ public class CreditoService {
     // ==========================================
 
     public List<CuotaSimuladaDTO> simularTablaAmortizacion(BigDecimal monto, int plazoMeses, BigDecimal tasaAnual, String sistema) {
-        List<CuotaSimuladaDTO> tabla = new ArrayList<>();
-        BigDecimal tasaMensual = tasaAnual.divide(BigDecimal.valueOf(12), MC).divide(BigDecimal.valueOf(100), MC);
-        BigDecimal saldoPendiente = monto;
-        LocalDate fechaIteracion = LocalDate.now();
-
-        switch (sistema.toUpperCase()) {
-            case "FRANCES":
-                BigDecimal unoMasI = BigDecimal.ONE.add(tasaMensual);
-                BigDecimal factorPotencia = unoMasI.pow(plazoMeses, MC);
-                BigDecimal numerador = tasaMensual.multiply(factorPotencia, MC);
-                BigDecimal denominador = factorPotencia.subtract(BigDecimal.ONE);
-                BigDecimal cuotaFijaTotal = monto.multiply(numerador.divide(denominador, MC), MC).setScale(2, RoundingMode.HALF_EVEN);
-
-                for (int i = 1; i <= plazoMeses; i++) {
-                    fechaIteracion = fechaIteracion.plusMonths(1);
-                    BigDecimal interesCuota = saldoPendiente.multiply(tasaMensual, MC).setScale(2, RoundingMode.HALF_EVEN);
-                    BigDecimal capitalCuota = cuotaFijaTotal.subtract(interesCuota).setScale(2, RoundingMode.HALF_EVEN);
-
-                    if (i == plazoMeses) {
-                        capitalCuota = saldoPendiente;
-                        cuotaFijaTotal = capitalCuota.add(interesCuota);
-                    }
-
-                    saldoPendiente = saldoPendiente.subtract(capitalCuota);
-                    tabla.add(new CuotaSimuladaDTO(i, fechaIteracion, capitalCuota, interesCuota, cuotaFijaTotal, saldoPendiente.max(BigDecimal.ZERO)));
-                }
-                break;
-
-            case "ALEMAN":
-                BigDecimal capitalFijo = monto.divide(BigDecimal.valueOf(plazoMeses), 2, RoundingMode.HALF_EVEN);
-                for (int i = 1; i <= plazoMeses; i++) {
-                    fechaIteracion = fechaIteracion.plusMonths(1);
-                    BigDecimal interesCuota = saldoPendiente.multiply(tasaMensual, MC).setScale(2, RoundingMode.HALF_EVEN);
-                    if (i == plazoMeses) {
-                        capitalFijo = saldoPendiente;
-                    }
-                    BigDecimal cuotaVariable = capitalFijo.add(interesCuota);
-                    saldoPendiente = saldoPendiente.subtract(capitalFijo);
-                    tabla.add(new CuotaSimuladaDTO(i, fechaIteracion, capitalFijo, interesCuota, cuotaVariable, saldoPendiente.max(BigDecimal.ZERO)));
-                }
-                break;
-
-            case "AMERICANO":
-                BigDecimal interesFijoPeriodico = monto.multiply(tasaMensual, MC).setScale(2, RoundingMode.HALF_EVEN);
-                for (int i = 1; i <= plazoMeses; i++) {
-                    fechaIteracion = fechaIteracion.plusMonths(1);
-                    BigDecimal capitalCuota = (i == plazoMeses) ? monto : BigDecimal.ZERO;
-                    BigDecimal cuotaTotal = capitalCuota.add(interesFijoPeriodico);
-                    if (i == plazoMeses) {
-                        saldoPendiente = BigDecimal.ZERO;
-                    }
-                    tabla.add(new CuotaSimuladaDTO(i, fechaIteracion, capitalCuota, interesFijoPeriodico, cuotaTotal, saldoPendiente));
-                }
-                break;
-            default:
-                throw new IllegalArgumentException("Error Financiero: El sistema '" + sistema + "' no esta soportado.");
-        }
-        return tabla;
+        return amortizacionFactory.getEstrategia(sistema).calcular(monto, plazoMeses, tasaAnual);
     }
 
     // ==========================================
     // DESEMBOLSO TRANSACCIONAL CON PARTIDA DOBLE
     // ==========================================
 
+    @Retryable(
+        retryFor = { org.springframework.dao.ConcurrencyFailureException.class, 
+                     org.springframework.transaction.TransactionException.class },
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 100, maxDelay = 1000, multiplier = 2.0)
+    )
     @Transactional(isolation = Isolation.SERIALIZABLE, rollbackFor = Exception.class)
     public Credito desembolsarCredito(Integer creditoId, Integer cuentaAhorrosId, String ipUsuario, String dispositivo) {
         Integer tenantId = TenantContext.getCurrentTenant();
@@ -162,28 +140,31 @@ public class CreditoService {
         // 2. Validar cuenta destino de ahorros
         CuentasAhorros cuenta = cuentasRepository.findById(cuentaAhorrosId).orElseThrow(() -> new IllegalArgumentException("Error: Cuenta no encontrada."));
 
+        // Sanitización decimal contable: forzar escala a 2 posiciones con redondeo HALF_UP
+        BigDecimal montoSolicitado = credito.getMontoSolicitado().setScale(2, RoundingMode.HALF_UP);
+
         // 3. Generar tabla física de cuotas en BD
-        List<CuotaSimuladaDTO> cuotasCalculadas = simularTablaAmortizacion(credito.getMontoSolicitado(), credito.getPlazoMeses(), credito.getTasaInteresAnual(), credito.getTipoAmortizacion());
+        List<CuotaSimuladaDTO> cuotasCalculadas = simularTablaAmortizacion(montoSolicitado, credito.getPlazoMeses(), credito.getTasaInteresAnual(), credito.getTipoAmortizacion());
         for (CuotaSimuladaDTO cDTO : cuotasCalculadas) {
             CuotasAmortizacion cuotaFisica = new CuotasAmortizacion();
             cuotaFisica.setCredito(credito);
             cuotaFisica.setNumeroCuota(cDTO.getNumeroCuota());
             cuotaFisica.setFechaVencimiento(cDTO.getFechaVencimiento());
-            cuotaFisica.setCapitalProyectado(cDTO.getCapital());
-            cuotaFisica.setInteresProyectado(cDTO.getInteres());
+            cuotaFisica.setCapitalProyectado(cDTO.getCapital().setScale(2, RoundingMode.HALF_UP));
+            cuotaFisica.setInteresProyectado(cDTO.getInteres().setScale(2, RoundingMode.HALF_UP));
             cuotaFisica.setEstado("PENDIENTE");
             cuotasRepository.save(cuotaFisica);
         }
 
         // 4. Actualizar estado contractual del crédito
         credito.setEstado("DESEMBOLSADO");
-        credito.setMontoDesembolsado(credito.getMontoSolicitado());
+        credito.setMontoDesembolsado(montoSolicitado);
         credito.setFechaDesembolso(LocalDateTime.now());
         creditoRepository.save(credito);
 
         // 5. Aplicar mutación de saldos en Ledger Bancario
-        BigDecimal saldoAnterior = cuenta.getSaldo();
-        BigDecimal saldoResultante = saldoAnterior.add(credito.getMontoSolicitado());
+        BigDecimal saldoAnterior = cuenta.getSaldo().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal saldoResultante = saldoAnterior.add(montoSolicitado).setScale(2, RoundingMode.HALF_UP);
         cuenta.setSaldo(saldoResultante);
         cuentasRepository.save(cuenta);
 
@@ -191,7 +172,7 @@ public class CreditoService {
         TransaccionesLedger ledger = new TransaccionesLedger();
         ledger.setCuenta(cuenta);
         ledger.setTipoTransaccion("CREDITO");
-        ledger.setMonto(credito.getMontoSolicitado());
+        ledger.setMonto(montoSolicitado);
         ledger.setSaldoAnterior(saldoAnterior);
         ledger.setSaldoResultante(saldoResultante);
         ledger.setCanal("PROCESO_BATCH");
@@ -221,14 +202,14 @@ public class CreditoService {
         AsientosDetalle debitoCartera = new AsientosDetalle();
         debitoCartera.setPlanCuentas(cuentaCartera);
         debitoCartera.setTipoAsiento("DEBITO");
-        debitoCartera.setMonto(credito.getMontoSolicitado());
+        debitoCartera.setMonto(montoSolicitado);
         detalles.add(debitoCartera);
 
         // Apunte 2: Al CREDITO (Haber) - Aumenta el pasivo por Obligaciones con los Socios
         AsientosDetalle creditoPasivo = new AsientosDetalle();
         creditoPasivo.setPlanCuentas(cuentaObligaciones);
         creditoPasivo.setTipoAsiento("CREDITO");
-        creditoPasivo.setMonto(credito.getMontoSolicitado());
+        creditoPasivo.setMonto(montoSolicitado);
         detalles.add(creditoPasivo);
 
         // Registrar y validar contabilidad cuadrada por software
@@ -244,7 +225,7 @@ public class CreditoService {
         log.setDispositivoInfo(dispositivo);
         log.setValorAnterior(Map.of("estado", "APROBADO", "saldo_cuenta", saldoAnterior));
         log.setValorNuevo(Map.of("estado", "DESEMBOLSADO", "saldo_cuenta", saldoResultante));
-        logsRepository.save(log);
+        logsAuditoriaService.registrarLog(log);
 
         return credito;
     }
@@ -253,8 +234,18 @@ public class CreditoService {
      * Registra el pago en cascada de las cuotas de un credito, debitando de la cuenta del socio
      * y asentando la partida doble contable correspondiente (cartera e ingresos por interes).
      */
+    @Retryable(
+        retryFor = { org.springframework.dao.ConcurrencyFailureException.class, 
+                     org.springframework.transaction.TransactionException.class },
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 100, maxDelay = 1000, multiplier = 2.0)
+    )
     @Transactional(isolation = Isolation.SERIALIZABLE, rollbackFor = Exception.class)
-    public Credito registrarPago(PagoRequestDTO pagoDTO, String ipUsuario, String dispositivo) {
+    public Credito registrarPago(PagoRequestDTO pagoDTO, String authUsername, String authRol, String ipUsuario, String dispositivo) {
+        if (authUsername == null || authRol == null) {
+            throw new SecurityException("Error de Seguridad: Contexto de seguridad incompleto.");
+        }
+
         Integer tenantId = TenantContext.getCurrentTenant();
         if (tenantId == null) {
             throw new IllegalStateException("Error de Seguridad: No se puede registrar un pago sin especificar la institucion (X-Tenant-ID).");
@@ -268,6 +259,17 @@ public class CreditoService {
             throw new IllegalArgumentException("Error de Seguridad: El credito no pertenece a esta institucion.");
         }
 
+        // Enlace al control de caja si el operador es cajero
+        Integer cajeroId = null;
+        String canalTransaccion = "APP_MOVIL";
+        if ("CAJERO".equals(authRol)) {
+            UsuariosAdmin cajero = usuarioAdminRepository.findByUsernameAndEmpresaId(authUsername, tenantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Error: Cajero no encontrado."));
+            cajaDiariaService.validarCajaAperturada(cajero.getId(), tenantId);
+            cajeroId = cajero.getId();
+            canalTransaccion = "VENTANILLA";
+        }
+
         if (!"DESEMBOLSADO".equals(credito.getEstado()) && !"EN_MORA".equals(credito.getEstado())) {
             throw new IllegalStateException("Error Financiero: El credito no se encuentra en un estado que permita pagos (DESEMBOLSADO o EN_MORA).");
         }
@@ -275,6 +277,11 @@ public class CreditoService {
         // 2. Validar cuenta de ahorros de origen
         CuentasAhorros cuenta = cuentasRepository.findById(pagoDTO.getCuentaAhorrosId())
                 .orElseThrow(() -> new IllegalArgumentException("Error: Cuenta de ahorros no encontrada."));
+
+        // BLINDAJE DE PROPIEDAD: Si el rol es SOCIO, validar que la cuenta de origen le pertenezca
+        if ("SOCIO".equals(authRol) && !cuenta.getSocio().getIdentificacion().equals(authUsername)) {
+            throw new SecurityException("Error de Seguridad: Acceso denegado. La cuenta de origen del pago no pertenece al socio autenticado.");
+        }
 
         if (!cuenta.getEmpresaId().equals(tenantId)) {
             throw new IllegalArgumentException("Error de Seguridad: La cuenta no pertenece a esta institucion.");
@@ -284,12 +291,12 @@ public class CreditoService {
         List<CuotasAmortizacion> cuotas = cuotasRepository.findByCreditoIdOrderByNumeroCuotaAsc(credito.getId());
 
         // 4. Calcular deuda total pendiente para evitar cobros en exceso
-        BigDecimal totalDeuda = BigDecimal.ZERO;
+        BigDecimal totalDeuda = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         for (CuotasAmortizacion cuota : cuotas) {
             if (!"PAGADA".equals(cuota.getEstado())) {
-                BigDecimal moraPendiente = cuota.getMontoMoraAcumulado().subtract(cuota.getMontoMoraPagado());
-                BigDecimal interesPendiente = cuota.getInteresProyectado().subtract(cuota.getInteresPagado());
-                BigDecimal capitalPendiente = cuota.getCapitalProyectado().subtract(cuota.getCapitalPagado());
+                BigDecimal moraPendiente = cuota.getMontoMoraAcumulado().subtract(cuota.getMontoMoraPagado()).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal interesPendiente = cuota.getInteresProyectado().subtract(cuota.getInteresPagado()).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal capitalPendiente = cuota.getCapitalProyectado().subtract(cuota.getCapitalPagado()).setScale(2, RoundingMode.HALF_UP);
                 totalDeuda = totalDeuda.add(moraPendiente).add(interesPendiente).add(capitalPendiente);
             }
         }
@@ -299,21 +306,21 @@ public class CreditoService {
         }
 
         // Ajustar monto a cobrar si se ingresa un valor superior a la deuda remanente
-        BigDecimal montoAPagar = pagoDTO.getMonto();
+        BigDecimal montoAPagar = pagoDTO.getMonto().setScale(2, RoundingMode.HALF_UP);
         if (montoAPagar.compareTo(totalDeuda) > 0) {
             montoAPagar = totalDeuda;
         }
 
         // 5. Validar fondos en cuenta de ahorros
-        BigDecimal saldoAnterior = cuenta.getSaldo();
+        BigDecimal saldoAnterior = cuenta.getSaldo().setScale(2, RoundingMode.HALF_UP);
         if (saldoAnterior.compareTo(montoAPagar) < 0) {
             throw new IllegalStateException("Error Financiero: Fondos insuficientes en la cuenta de ahorros del socio. Saldo disponible: $" + saldoAnterior);
         }
 
         // 6. Aplicar el pago en cascada sobre las cuotas pendientes
         BigDecimal remanente = montoAPagar;
-        BigDecimal totalCapitalPagado = BigDecimal.ZERO;
-        BigDecimal totalInteresPagado = BigDecimal.ZERO;
+        BigDecimal totalCapitalPagado = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalInteresPagado = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
         for (CuotasAmortizacion cuota : cuotas) {
             if (remanente.compareTo(BigDecimal.ZERO) <= 0) {
@@ -324,30 +331,30 @@ public class CreditoService {
             }
 
             // A. Cobrar Mora (Recargos por mora acumulada)
-            BigDecimal moraPendiente = cuota.getMontoMoraAcumulado().subtract(cuota.getMontoMoraPagado());
+            BigDecimal moraPendiente = cuota.getMontoMoraAcumulado().subtract(cuota.getMontoMoraPagado()).setScale(2, RoundingMode.HALF_UP);
             if (moraPendiente.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal pagoMora = remanente.min(moraPendiente);
-                cuota.setMontoMoraPagado(cuota.getMontoMoraPagado().add(pagoMora));
-                remanente = remanente.subtract(pagoMora);
-                totalInteresPagado = totalInteresPagado.add(pagoMora);
+                BigDecimal pagoMora = remanente.min(moraPendiente).setScale(2, RoundingMode.HALF_UP);
+                cuota.setMontoMoraPagado(cuota.getMontoMoraPagado().add(pagoMora).setScale(2, RoundingMode.HALF_UP));
+                remanente = remanente.subtract(pagoMora).setScale(2, RoundingMode.HALF_UP);
+                totalInteresPagado = totalInteresPagado.add(pagoMora).setScale(2, RoundingMode.HALF_UP);
             }
 
             // B. Cobrar Interes Ordinario Proyectado
-            BigDecimal interesPendiente = cuota.getInteresProyectado().subtract(cuota.getInteresPagado());
+            BigDecimal interesPendiente = cuota.getInteresProyectado().subtract(cuota.getInteresPagado()).setScale(2, RoundingMode.HALF_UP);
             if (interesPendiente.compareTo(BigDecimal.ZERO) > 0 && remanente.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal pagoInteres = remanente.min(interesPendiente);
-                cuota.setInteresPagado(cuota.getInteresPagado().add(pagoInteres));
-                remanente = remanente.subtract(pagoInteres);
-                totalInteresPagado = totalInteresPagado.add(pagoInteres);
+                BigDecimal pagoInteres = remanente.min(interesPendiente).setScale(2, RoundingMode.HALF_UP);
+                cuota.setInteresPagado(cuota.getInteresPagado().add(pagoInteres).setScale(2, RoundingMode.HALF_UP));
+                remanente = remanente.subtract(pagoInteres).setScale(2, RoundingMode.HALF_UP);
+                totalInteresPagado = totalInteresPagado.add(pagoInteres).setScale(2, RoundingMode.HALF_UP);
             }
 
             // C. Cobrar Capital Proyectado (Amortizacion directa)
-            BigDecimal capitalPendiente = cuota.getCapitalProyectado().subtract(cuota.getCapitalPagado());
+            BigDecimal capitalPendiente = cuota.getCapitalProyectado().subtract(cuota.getCapitalPagado()).setScale(2, RoundingMode.HALF_UP);
             if (capitalPendiente.compareTo(BigDecimal.ZERO) > 0 && remanente.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal pagoCapital = remanente.min(capitalPendiente);
-                cuota.setCapitalPagado(cuota.getCapitalPagado().add(pagoCapital));
-                remanente = remanente.subtract(pagoCapital);
-                totalCapitalPagado = totalCapitalPagado.add(pagoCapital);
+                BigDecimal pagoCapital = remanente.min(capitalPendiente).setScale(2, RoundingMode.HALF_UP);
+                cuota.setCapitalPagado(cuota.getCapitalPagado().add(pagoCapital).setScale(2, RoundingMode.HALF_UP));
+                remanente = remanente.subtract(pagoCapital).setScale(2, RoundingMode.HALF_UP);
+                totalCapitalPagado = totalCapitalPagado.add(pagoCapital).setScale(2, RoundingMode.HALF_UP);
             }
 
             // Verificar si la cuota quedo completamente liquidada
@@ -366,7 +373,7 @@ public class CreditoService {
         }
 
         // 7. Mutar el saldo de la cuenta de ahorros
-        BigDecimal saldoResultante = saldoAnterior.subtract(montoAPagar);
+        BigDecimal saldoResultante = saldoAnterior.subtract(montoAPagar).setScale(2, RoundingMode.HALF_UP);
         cuenta.setSaldo(saldoResultante);
         cuentasRepository.save(cuenta);
 
@@ -377,9 +384,10 @@ public class CreditoService {
         ledger.setMonto(montoAPagar);
         ledger.setSaldoAnterior(saldoAnterior);
         ledger.setSaldoResultante(saldoResultante);
-        ledger.setCanal("APP_MOVIL");
+        ledger.setCanal(canalTransaccion);
         ledger.setReferencia("REF-PAGO-" + System.currentTimeMillis());
         ledger.setDescripcion("Pago de cuota de credito Contrato N: " + credito.getNumeroCredito());
+        ledger.setUsuarioAdminId(cajeroId);
         ledger.setDireccionIp(ipUsuario);
         ledger.setDispositivoInfo(dispositivo);
         TransaccionesLedger ledgerGuardado = transaccionesLedgerRepository.save(ledger);
@@ -453,8 +461,49 @@ public class CreditoService {
         log.setDispositivoInfo(dispositivo);
         log.setValorAnterior(Map.of("estado", creditoCancelado ? "DESEMBOLSADO" : "DESEMBOLSADO", "saldo_cuenta", saldoAnterior));
         log.setValorNuevo(Map.of("estado", creditoCancelado ? "CANCELADO" : "DESEMBOLSADO", "saldo_cuenta", saldoResultante));
-        logsRepository.save(log);
+        logsAuditoriaService.registrarLog(log);
 
         return credito;
+    }
+
+    // OBTENER CRONOGRAMA DE CUOTAS DE AMORTIZACION CON VALIDACION DE SEGURIDAD
+    public List<CuotasAmortizacion> obtenerAmortizacion(Integer creditoId, String authUsername, String authRol) {
+        // Validar que el crédito exista y pertenezca al Tenant activo
+        Credito credito = obtenerPorId(creditoId);
+
+        // Blindaje de propiedad: si el rol es SOCIO, el crédito debe pertenecerle
+        if ("SOCIO".equals(authRol) && !credito.getSocio().getIdentificacion().equals(authUsername)) {
+            throw new SecurityException("Error de Seguridad: Acceso denegado. No es propietario de este crédito.");
+        }
+
+        return cuotasRepository.findByCreditoIdOrderByNumeroCuotaAsc(credito.getId());
+    }
+
+    @Transactional
+    public Credito revisarCredito(Integer id, String authUsername) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        Credito credito = obtenerPorId(id);
+        if ("SOLICITADO".equals(credito.getEstado())) {
+            credito.setEstado("EN_REVISION");
+            if (authUsername != null) {
+                UsuariosAdmin oficial = usuarioAdminRepository.findByUsernameAndEmpresaId(authUsername, tenantId).orElse(null);
+                if (oficial != null) {
+                    credito.setUsuarioOficialId(oficial.getId());
+                }
+            }
+            return creditoRepository.save(credito);
+        }
+        return credito;
+    }
+
+    @Transactional
+    public Credito rechazarCredito(Integer id, String motivo) {
+        Credito credito = obtenerPorId(id);
+        if (!"SOLICITADO".equals(credito.getEstado()) && !"EN_REVISION".equals(credito.getEstado())) {
+            throw new IllegalStateException("Error: Solo se pueden rechazar créditos en estado SOLICITADO o EN_REVISION.");
+        }
+        credito.setEstado("RECHAZADO");
+        credito.setMotivoRechazo(motivo);
+        return creditoRepository.save(credito);
     }
 }

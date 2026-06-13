@@ -316,6 +316,8 @@ CREATE TABLE cuentas_ahorros (
     numero_cuenta VARCHAR(20) NOT NULL,
     tipo tipo_cuenta_ahorro NOT NULL,
     saldo NUMERIC(15,2) NOT NULL DEFAULT 0.00 CHECK (saldo >= 0),
+    tasa_interes_anual NUMERIC(5,2) NOT NULL DEFAULT 0.00,
+    interes_acumulado NUMERIC(15,2) NOT NULL DEFAULT 0.00,
     estado VARCHAR(20) DEFAULT 'ACTIVA' CHECK (estado IN ('ACTIVA', 'INACTIVA', 'BLOQUEADA')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
@@ -589,6 +591,64 @@ CREATE INDEX idx_logs_auditoria_empresa ON logs_auditoria(empresa_id, fecha);
 CREATE INDEX idx_control_sesiones_token ON control_sesiones(token_jwt_hash);
 
 
+-- 10.1 CADASTRADO Y CONTROL DE CAJA DIARIA
+CREATE TABLE cajas_diarias (
+    id SERIAL PRIMARY KEY,
+    empresa_id INT NOT NULL REFERENCES empresas(id),
+    usuario_cajero_id INT NOT NULL REFERENCES usuarios_admin(id),
+    fecha_contable DATE NOT NULL,
+    monto_apertura NUMERIC(15,2) NOT NULL CHECK (monto_apertura >= 0),
+    monto_cierre_sistema NUMERIC(15,2) NOT NULL DEFAULT 0.00 CHECK (monto_cierre_sistema >= 0),
+    monto_cierre_efectivo_real NUMERIC(15,2) CHECK (monto_cierre_efectivo_real >= 0),
+    diferencia NUMERIC(15,2) NOT NULL DEFAULT 0.00,
+    estado VARCHAR(15) NOT NULL DEFAULT 'APERTURADA' CHECK (estado IN ('APERTURADA', 'CERRADA')),
+    asiento_cabecera_id BIGINT REFERENCES asientos_cabecera(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT uk_empresa_cajero_fecha UNIQUE (empresa_id, usuario_cajero_id, fecha_contable)
+);
+
+CREATE INDEX idx_cajas_diarias_cajero_fecha ON cajas_diarias(empresa_id, usuario_cajero_id, fecha_contable);
+
+-- 10.2 REGISTRO DE DEVENGO Y CAPITALIZACIÓN DIARIA/MENSUAL
+CREATE TABLE devengos_registro (
+    id SERIAL PRIMARY KEY,
+    empresa_id INT NOT NULL REFERENCES empresas(id),
+    fecha_devengo DATE NOT NULL,
+    total_devengado NUMERIC(15,2) NOT NULL,
+    asiento_cabecera_id BIGINT REFERENCES asientos_cabecera(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_empresa_fecha_devengo UNIQUE (empresa_id, fecha_devengo)
+);
+
+CREATE TABLE capitalizaciones_registro (
+    id SERIAL PRIMARY KEY,
+    empresa_id INT NOT NULL REFERENCES empresas(id),
+    anio INT NOT NULL,
+    mes INT NOT NULL,
+    fecha_capitalizacion DATE NOT NULL,
+    total_capitalizado NUMERIC(15,2) NOT NULL,
+    asiento_cabecera_id BIGINT REFERENCES asientos_cabecera(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_empresa_anio_mes UNIQUE (empresa_id, anio, mes)
+);
+
+CREATE TABLE tokens_recuperacion (
+    id SERIAL PRIMARY KEY,
+    empresa_id INT NOT NULL REFERENCES empresas(id),
+    socio_id INT NOT NULL REFERENCES socios(id) ON DELETE CASCADE,
+    token_hash VARCHAR(64) NOT NULL,
+    canal VARCHAR(10) NOT NULL CHECK (canal IN ('CORREO', 'SMS')),
+    fecha_expiracion TIMESTAMP NOT NULL,
+    utilizado BOOLEAN NOT NULL DEFAULT FALSE,
+    intentos_fallidos INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_empresa_token_hash UNIQUE (empresa_id, token_hash)
+);
+
+
+
 -- 11. TRIGGER POSTGRESQL PARA ENFORZAR LA PARTIDA DOBLE (A NIVEL DE BDD)
 
 CREATE OR REPLACE FUNCTION fn_validar_partida_doble() 
@@ -676,7 +736,15 @@ INSERT INTO plan_cuentas (id, empresa_id, codigo_contable, nombre_cuenta, tipo_c
 (15, 1, '5', 'INGRESOS', 'INGRESO', FALSE),
 (16, 1, '5.1', 'INGRESOS FINANCIEROS', 'INGRESO', FALSE),
 (17, 1, '5.1.01', 'INGRESOS POR INTERESES DE CARTERA', 'INGRESO', FALSE),
-(18, 1, '5.1.01.05', 'Intereses Cartera de Créditos Vigente', 'INGRESO', TRUE);
+(18, 1, '5.1.01.05', 'Intereses Cartera de Créditos Vigente', 'INGRESO', TRUE),
+(19, 1, '1.1.01.01', 'Bóveda General de la Cooperativa', 'ACTIVO', TRUE),
+(20, 1, '1.2.99.01', 'Cuentas por Cobrar Empleados (Faltantes de Caja)', 'ACTIVO', TRUE),
+(21, 1, '5.2.99.01', 'Otros Ingresos - Sobrantes de Caja', 'INGRESO', TRUE),
+(22, 1, '2.1.01.10', 'Intereses por Pagar Obligaciones con Socios', 'PASIVO', TRUE),
+(23, 1, '4', 'GASTOS', 'GASTO', FALSE),
+(24, 1, '4.1', 'GASTOS FINANCIEROS', 'GASTO', FALSE),
+(25, 1, '4.1.01', 'GASTOS POR OBLIGACIONES CON EL PUBLICO', 'GASTO', FALSE),
+(26, 1, '4.1.01.05', 'Gastos de Intereses Obligaciones con Socios', 'GASTO', TRUE);
 
 -- Ajustar los valores de los seriales para evitar fallas de duplicidad en inserciones posteriores
 SELECT setval('empresas_id_seq', 1);
@@ -684,4 +752,5 @@ SELECT setval('usuarios_admin_id_seq', 1);
 SELECT setval('socios_id_seq', 1);
 SELECT setval('cuentas_ahorros_id_seq', 1);
 SELECT setval('creditos_id_seq', 1);
-SELECT setval('plan_cuentas_id_seq', 18);
+SELECT setval('plan_cuentas_id_seq', 26);
+

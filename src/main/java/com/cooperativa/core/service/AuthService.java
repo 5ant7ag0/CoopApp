@@ -2,6 +2,7 @@ package com.cooperativa.core.service;
 
 import com.cooperativa.core.config.TenantContext;
 import com.cooperativa.core.dto.LoginResponseDTO;
+import com.cooperativa.core.dto.UserProfileResponseDTO;
 import com.cooperativa.core.model.ControlSesiones;
 import com.cooperativa.core.model.Socio;
 import com.cooperativa.core.model.SociosCredenciales;
@@ -19,7 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
+import com.cooperativa.core.model.TokensRecuperacion;
+import com.cooperativa.core.model.LogsAuditoria;
+import com.cooperativa.core.repository.TokensRecuperacionRepository;
+import com.cooperativa.core.service.NotificacionService;
+import com.cooperativa.core.service.LogsAuditoriaService;
 
 /**
  * Servicio centralizado para gestionar la autenticacion de administradores y socios,
@@ -45,6 +52,15 @@ public class AuthService {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private TokensRecuperacionRepository tokensRecuperacionRepository;
+
+    @Autowired
+    private NotificacionService notificacionService;
+
+    @Autowired
+    private LogsAuditoriaService logsAuditoriaService;
 
     /**
      * Autenticacion de personal administrativo (Backoffice).
@@ -92,7 +108,7 @@ public class AuthService {
     /**
      * Autenticacion de socios para canales digitales (App Movil / Web Socio).
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = IllegalArgumentException.class)
     public LoginResponseDTO loginSocio(String identificacion, String password, String ip, String userAgent) {
         Integer tenantId = TenantContext.getCurrentTenant();
         if (tenantId == null) {
@@ -117,8 +133,20 @@ public class AuthService {
             // Incrementar intentos fallidos
             creds.setIntentosFallidos(creds.getIntentosFallidos() + 1);
             if (creds.getIntentosFallidos() >= 5) {
-                creds.setEstadoAcceso("SUSPENDIDO");
-                creds.setBloqueadoHasta(LocalDateTime.now().plusMinutes(30));
+                creds.setEstadoAcceso("BLOQUEADA");
+                creds.setBloqueadoHasta(null);
+
+                // Registro de Auditoria para el bloqueo
+                LogsAuditoria auditLog = new LogsAuditoria();
+                auditLog.setSocio(socio);
+                auditLog.setAccion("BLOQUEO_ACCESO_FALLIDO");
+                auditLog.setTablaAfectada("socios_credenciales");
+                auditLog.setRegistroId(creds.getId());
+                auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+                auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
+                auditLog.setValorAnterior(Map.of("estadoAcceso", "ACTIVO"));
+                auditLog.setValorNuevo(Map.of("estadoAcceso", "BLOQUEADA"));
+                logsAuditoriaService.registrarLog(auditLog);
             }
             credencialesRepository.save(creds);
             throw new IllegalArgumentException("Credenciales invalidas para el socio.");
@@ -193,6 +221,21 @@ public class AuthService {
     }
 
     /**
+     * Obtiene el perfil del usuario autenticado en base al username y rol del JWT.
+     */
+    public UserProfileResponseDTO obtenerPerfil(String username, String rol, Integer empresaId) {
+        if ("SOCIO".equals(rol)) {
+            Socio socio = socioRepository.findByIdentificacionAndEmpresaId(username, empresaId)
+                    .orElseThrow(() -> new IllegalArgumentException("Socio no encontrado para el usuario autenticado."));
+            return new UserProfileResponseDTO(socio.getIdentificacion(), socio.getNombresCompletos(), "SOCIO", empresaId, socio);
+        } else {
+            UsuariosAdmin admin = adminRepository.findByUsernameAndEmpresaId(username, empresaId)
+                    .orElseThrow(() -> new IllegalArgumentException("Usuario administrativo no encontrado."));
+            return new UserProfileResponseDTO(admin.getUsername(), admin.getNombresCompletos(), admin.getRol(), empresaId, admin);
+        }
+    }
+
+    /**
      * Helper para hashear el token JWT a SHA-256 de manera nativa e inmutable.
      */
     private String hashSha256(String base) {
@@ -211,5 +254,204 @@ public class AuthService {
         } catch (Exception ex) {
             throw new RuntimeException("Error al generar hash de seguridad para la sesion: ", ex);
         }
+    }
+
+    /**
+     * Cambio de contraseña digital del socio validando que la contraseña actual sea correcta.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void cambiarClaveSocio(String identificacion, String claveActual, String claveNueva) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede cambiar la clave sin especificar la institucion (X-Tenant-ID).");
+        }
+
+        SociosCredenciales creds = credencialesRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Error: No se encontraron credenciales digitales para el socio."));
+
+        // Validar contraseña actual
+        if (!encryptionService.checkPassword(claveActual, creds.getPasswordHash())) {
+            throw new IllegalArgumentException("Error: La contraseña actual ingresada es incorrecta.");
+        }
+
+        // Validar que la nueva contraseña no esté vacía
+        if (claveNueva == null || claveNueva.trim().isEmpty()) {
+            throw new IllegalArgumentException("Error: La nueva contraseña no puede estar vacía.");
+        }
+
+        // Hashear y guardar
+        creds.setPasswordHash(encryptionService.hashPassword(claveNueva));
+        credencialesRepository.save(creds);
+    }
+
+    /**
+     * Solicita la recuperación de contraseña digital del socio.
+     * Genera un token (UUID para CORREO, OTP de 6 dígitos para SMS), lo persiste hasheado (SHA-256)
+     * y simula el envío a través del NotificacionService.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void solicitarRecuperacion(String identificacion, String canal, String ip, String userAgent) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede solicitar recuperacion sin especificar la institucion (X-Tenant-ID).");
+        }
+
+        if (identificacion == null || identificacion.trim().isEmpty()) {
+            throw new IllegalArgumentException("La identificacion del socio es requerida.");
+        }
+        if (canal == null || canal.trim().isEmpty()) {
+            throw new IllegalArgumentException("El canal es requerido.");
+        }
+
+        // 1. Buscar socio
+        Socio socio = socioRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Socio no encontrado con la identificacion provista."));
+
+        // 2. Buscar credenciales
+        SociosCredenciales creds = credencialesRepository.findBySocioId(socio.getId())
+                .orElseThrow(() -> new IllegalArgumentException("No existen credenciales registradas para este socio."));
+
+        // 3. Generar Token/OTP
+        String tokenRaw;
+        if ("CORREO".equals(canal)) {
+            tokenRaw = java.util.UUID.randomUUID().toString();
+        } else if ("SMS".equals(canal)) {
+            java.security.SecureRandom random = new java.security.SecureRandom();
+            int otpNum = 100000 + random.nextInt(900000);
+            tokenRaw = String.valueOf(otpNum);
+        } else {
+            throw new IllegalArgumentException("Canal no soportado: " + canal);
+        }
+
+        // Hash SHA-256
+        String tokenHash = hashSha256(tokenRaw);
+
+        // 4. Guardar en Base de Datos
+        TokensRecuperacion tokenRec = new TokensRecuperacion();
+        tokenRec.setSocio(socio);
+        tokenRec.setTokenHash(tokenHash);
+        tokenRec.setCanal(canal);
+        tokenRec.setFechaExpiracion(LocalDateTime.now().plusMinutes(15));
+        tokenRec.setUtilizado(false);
+        tokenRec.setIntentosFallidos(0);
+        tokensRecuperacionRepository.save(tokenRec);
+
+        // 5. Enviar notificacion (simulacion)
+        if ("CORREO".equals(canal)) {
+            notificacionService.enviarRecuperacionCorreo(socio, tokenRaw);
+        } else {
+            notificacionService.enviarRecuperacionSms(socio, tokenRaw);
+        }
+
+        // 6. Registro de Auditoria
+        LogsAuditoria auditLog = new LogsAuditoria();
+        auditLog.setSocio(socio);
+        auditLog.setAccion("SOLICITAR_RECUPERACION_" + canal);
+        auditLog.setTablaAfectada("tokens_recuperacion");
+        auditLog.setRegistroId(tokenRec.getId());
+        auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+        auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
+        auditLog.setValorAnterior(Map.of("solicitud", "nueva"));
+        auditLog.setValorNuevo(Map.of(
+            "canal", canal,
+            "socioId", socio.getId(),
+            "tokenHash", tokenHash,
+            "expira", tokenRec.getFechaExpiracion().toString()
+        ));
+        logsAuditoriaService.registrarLog(auditLog);
+    }
+
+    /**
+     * Valida el token o código OTP de recuperación e inyecta la nueva clave digital.
+     * Mitiga fuerza bruta invalidando el token tras 3 intentos fallidos consecutivos de validación.
+     */
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = IllegalArgumentException.class)
+    public void validarYRestablecerClave(String identificacion, String token, String passwordNueva, String ip, String userAgent) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede validar token sin especificar la institucion (X-Tenant-ID).");
+        }
+
+        if (identificacion == null || identificacion.trim().isEmpty()) {
+            throw new IllegalArgumentException("La identificacion del socio es requerida.");
+        }
+        if (token == null || token.trim().isEmpty()) {
+            throw new IllegalArgumentException("El token o codigo OTP es requerido.");
+        }
+        if (passwordNueva == null || passwordNueva.trim().isEmpty()) {
+            throw new IllegalArgumentException("La nueva contrasena es requerida.");
+        }
+
+        // 1. Buscar socio
+        Socio socio = socioRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Socio no encontrado con la identificacion provista."));
+
+        // 2. Buscar ultimo token de recuperacion no utilizado y no expirado para este socio
+        LocalDateTime ahora = LocalDateTime.now();
+        TokensRecuperacion tokenRec = tokensRecuperacionRepository
+                .findFirstBySocioIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(socio.getId(), ahora)
+                .orElseThrow(() -> new IllegalArgumentException("Token o codigo OTP invalido o expirado."));
+
+        // 3. Validar intentos fallidos previos
+        if (tokenRec.getIntentosFallidos() >= 3) {
+            tokenRec.setUtilizado(true);
+            tokensRecuperacionRepository.save(tokenRec);
+            throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
+        }
+
+        // 4. Comparar hashes
+        String hashIngresado = hashSha256(token);
+        if (!tokenRec.getTokenHash().equals(hashIngresado)) {
+            // Incrementar intentos fallidos
+            tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
+            if (tokenRec.getIntentosFallidos() >= 3) {
+                tokenRec.setUtilizado(true);
+            }
+            tokensRecuperacionRepository.save(tokenRec);
+
+            // Log de auditoria para intento fallido
+            LogsAuditoria auditLog = new LogsAuditoria();
+            auditLog.setSocio(socio);
+            auditLog.setAccion("VALIDAR_RECUPERACION_FALLIDO");
+            auditLog.setTablaAfectada("tokens_recuperacion");
+            auditLog.setRegistroId(tokenRec.getId());
+            auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+            auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
+            auditLog.setValorAnterior(Map.of("intentosFallidos", tokenRec.getIntentosFallidos() - 1));
+            auditLog.setValorNuevo(Map.of("intentosFallidos", tokenRec.getIntentosFallidos()));
+            logsAuditoriaService.registrarLog(auditLog);
+
+            if (tokenRec.getIntentosFallidos() >= 3) {
+                throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
+            } else {
+                throw new IllegalArgumentException("Token o codigo OTP invalido.");
+            }
+        }
+
+        // 5. Si es correcto, actualizar credenciales del socio
+        SociosCredenciales creds = credencialesRepository.findBySocioId(socio.getId())
+                .orElseThrow(() -> new IllegalArgumentException("No existen credenciales registradas para este socio."));
+
+        creds.setPasswordHash(encryptionService.hashPassword(passwordNueva));
+        creds.setEstadoAcceso("ACTIVO");
+        creds.setIntentosFallidos(0);
+        creds.setBloqueadoHasta(null);
+        credencialesRepository.save(creds);
+
+        // 6. Marcar token como utilizado
+        tokenRec.setUtilizado(true);
+        tokensRecuperacionRepository.save(tokenRec);
+
+        // 7. Registro de Auditoria
+        LogsAuditoria auditLog = new LogsAuditoria();
+        auditLog.setSocio(socio);
+        auditLog.setAccion("RESTABLECER_CLAVE_EXITOSO");
+        auditLog.setTablaAfectada("socios_credenciales");
+        auditLog.setRegistroId(creds.getId());
+        auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+        auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
+        auditLog.setValorAnterior(Map.of("estadoAcceso", "BLOQUEADA"));
+        auditLog.setValorNuevo(Map.of("estadoAcceso", "ACTIVO"));
+        logsAuditoriaService.registrarLog(auditLog);
     }
 }

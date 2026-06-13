@@ -17,6 +17,7 @@ public class AsientosDetalle extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "asiento_cabecera_id", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private AsientosCabecera asientoCabecera;
 
     @ManyToOne(fetch = FetchType.LAZY)

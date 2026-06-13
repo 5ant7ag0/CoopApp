@@ -10,4 +10,11 @@ public interface AsientosCabeceraRepository extends JpaRepository<AsientosCabece
 
     // Recupera todas las cabeceras de asientos de la cooperativa activa
     List<AsientosCabecera> findByEmpresaId(Integer empresaId);
+
+    // Recupera las cabeceras de asientos de la cooperativa activa creadas en un rango de fechas
+    List<AsientosCabecera> findByEmpresaIdAndFechaAsientoBetweenOrderByFechaAsientoDesc(
+            Integer empresaId,
+            java.time.LocalDateTime inicio,
+            java.time.LocalDateTime fin
+    );
 }

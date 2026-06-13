@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 @Service
@@ -35,8 +36,8 @@ public class ContabilidadService {
             throw new IllegalArgumentException("Error Contable: Un asiento debe contener al menos un detalle de movimiento.");
         }
 
-        BigDecimal totalDebitos = BigDecimal.ZERO;
-        BigDecimal totalCreditos = BigDecimal.ZERO;
+        BigDecimal totalDebitos = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalCreditos = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
         // Validar y acumular montos de la partida doble
         for (AsientosDetalle detalle : detalles) {
@@ -44,10 +45,14 @@ public class ContabilidadService {
                 throw new IllegalArgumentException("Error Contable: El monto del asiento debe ser mayor a cero.");
             }
 
+            // Sanitización decimal contable: forzar escala a 2 posiciones con redondeo HALF_UP
+            BigDecimal montoRedondeado = detalle.getMonto().setScale(2, RoundingMode.HALF_UP);
+            detalle.setMonto(montoRedondeado);
+
             if ("DEBITO".equals(detalle.getTipoAsiento())) {
-                totalDebitos = totalDebitos.add(detalle.getMonto());
+                totalDebitos = totalDebitos.add(montoRedondeado);
             } else if ("CREDITO".equals(detalle.getTipoAsiento())) {
-                totalCreditos = totalCreditos.add(detalle.getMonto());
+                totalCreditos = totalCreditos.add(montoRedondeado);
             } else {
                 throw new IllegalArgumentException("Error Contable: El tipo de asiento debe ser DEBITO o CREDITO.");
             }
@@ -69,5 +74,17 @@ public class ContabilidadService {
         }
 
         return cabeceraGuardada;
+    }
+
+    // OBTENER ASIENTOS CONTABLES DEL DIA DE HOY
+    public List<AsientosCabecera> obtenerAsientosDeHoy() {
+        Integer tenantId = com.cooperativa.core.config.TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error: No se puede obtener datos sin un X-Tenant-ID definido.");
+        }
+        java.time.LocalDate hoy = java.time.LocalDate.now();
+        java.time.LocalDateTime inicio = hoy.atStartOfDay();
+        java.time.LocalDateTime fin = hoy.atTime(23, 59, 59, 999999999);
+        return cabeceraRepository.findByEmpresaIdAndFechaAsientoBetweenOrderByFechaAsientoDesc(tenantId, inicio, fin);
     }
 }

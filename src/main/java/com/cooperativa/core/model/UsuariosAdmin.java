@@ -20,6 +20,7 @@ public class UsuariosAdmin extends BaseEntity {
     private String username;
 
     @Column(name = "password_hash", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private String passwordHash;
 
     @Column(name = "nombres_completos", nullable = false, length = 150)

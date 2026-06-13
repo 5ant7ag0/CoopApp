@@ -28,6 +28,9 @@ public class AsientosCabecera extends BaseEntity {
     @Column(name = "fecha_asiento", nullable = false, updatable = false)
     private LocalDateTime fechaAsiento = LocalDateTime.now();
 
+    @OneToMany(mappedBy = "asientoCabecera", fetch = FetchType.LAZY)
+    private java.util.List<AsientosDetalle> detalles;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }
