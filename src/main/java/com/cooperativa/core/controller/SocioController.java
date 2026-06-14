@@ -62,6 +62,26 @@ public class SocioController {
         }
     }
 
+    @PostMapping("/{id}/cedula-frontal")
+    public ResponseEntity<?> subirCedulaFrontal(@PathVariable Integer id, @RequestParam("file") MultipartFile file) {
+        try {
+            String url = socioService.guardarCedulaFrontal(id, file);
+            return ResponseEntity.ok(java.util.Map.of("fotoCedulaFrontalUrl", url));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/{id}/cedula-posterior")
+    public ResponseEntity<?> subirCedulaPosterior(@PathVariable Integer id, @RequestParam("file") MultipartFile file) {
+        try {
+            String url = socioService.guardarCedulaPosterior(id, file);
+            return ResponseEntity.ok(java.util.Map.of("fotoCedulaPosteriorUrl", url));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     @DeleteMapping("/{id}/avatar")
     public ResponseEntity<?> eliminarAvatar(@PathVariable Integer id) {
         try {

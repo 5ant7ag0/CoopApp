@@ -39,6 +39,9 @@ public class Socio extends BaseEntity {
     @Column(name = "actividad_economica", nullable = false, length = 100)
     private String actividadEconomica;
 
+    @Column(name = "lugar_trabajo", length = 150)
+    private String lugarTrabajo;
+
     // Precisión matemática usando BigDecimal para montos financieros
     @Column(name = "ingresos_mensuales", nullable = false)
     private BigDecimal ingresosMensuales = BigDecimal.ZERO;

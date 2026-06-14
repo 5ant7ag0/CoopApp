@@ -546,7 +546,8 @@ public class CuentasAhorrosService {
         }
 
         CuentasAhorros cuenta = obtenerPorId(dto.getCuentaAhorrosId());
-        if (!"ACTIVA".equals(cuenta.getEstado())) {
+        boolean esAportacionInactiva = "APORTACIONES".equals(cuenta.getTipo()) && "INACTIVA".equals(cuenta.getEstado());
+        if (!"ACTIVA".equals(cuenta.getEstado()) && !esAportacionInactiva) {
             throw new IllegalStateException("Error: La cuenta destino no está activa.");
         }
 
@@ -554,6 +555,20 @@ public class CuentasAhorrosService {
         BigDecimal saldoAnterior = cuenta.getSaldo().setScale(2, RoundingMode.HALF_UP);
         BigDecimal saldoNuevo = saldoAnterior.add(monto).setScale(2, RoundingMode.HALF_UP);
         cuenta.setSaldo(saldoNuevo);
+
+        // Control de activación automática para cuenta de aportaciones y socio
+        if ("APORTACIONES".equals(cuenta.getTipo())) {
+            BigDecimal minAporte = new BigDecimal("20.00");
+            if (saldoNuevo.compareTo(minAporte) >= 0) {
+                cuenta.setEstado("ACTIVA");
+                Socio socio = cuenta.getSocio();
+                if (socio != null) {
+                    socio.setEstado("ACTIVO");
+                    socioRepository.save(socio);
+                }
+            }
+        }
+
         cuentasAhorrosRepository.save(cuenta);
 
         // Registrar Ledger

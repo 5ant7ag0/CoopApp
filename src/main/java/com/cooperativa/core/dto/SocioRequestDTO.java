@@ -36,6 +36,8 @@ public class SocioRequestDTO {
     @NotBlank(message = "La actividad economica es obligatoria")
     private String actividadEconomica;
 
+    private String lugarTrabajo;
+
     @NotNull(message = "Ingresos mensuales son obligatorios")
     @PositiveOrZero(message = "Ingresos mensuales deben ser cero o mas")
     private BigDecimal ingresosMensuales;

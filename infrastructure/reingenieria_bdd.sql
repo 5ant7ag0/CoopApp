@@ -259,6 +259,7 @@ CREATE TABLE socios (
     telefono VARCHAR(15) NOT NULL CHECK (telefono ~ '^09[0-9]{8}$'),
     correo VARCHAR(100) NOT NULL CHECK (correo ~* '^[A-Za-z0-9._%-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}$'),
     actividad_economica VARCHAR(100) NOT NULL,
+    lugar_trabajo VARCHAR(150),
     
     ingresos_mensuales NUMERIC(15,2) NOT NULL DEFAULT 0.00,
     gastos_mensuales NUMERIC(15,2) NOT NULL DEFAULT 0.00,

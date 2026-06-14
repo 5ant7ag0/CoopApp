@@ -428,9 +428,13 @@ public class AuthService {
             }
         }
 
-        // 5. Si es correcto, actualizar credenciales del socio
+        // 5. Si es correcto, actualizar credenciales del socio (crear si no existen)
         SociosCredenciales creds = credencialesRepository.findBySocioId(socio.getId())
-                .orElseThrow(() -> new IllegalArgumentException("No existen credenciales registradas para este socio."));
+                .orElseGet(() -> {
+                    SociosCredenciales newCreds = new SociosCredenciales();
+                    newCreds.setSocio(socio);
+                    return newCreds;
+                });
 
         creds.setPasswordHash(encryptionService.hashPassword(passwordNueva));
         creds.setEstadoAcceso("ACTIVO");

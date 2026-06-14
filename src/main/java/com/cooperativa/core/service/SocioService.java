@@ -4,17 +4,33 @@ import com.cooperativa.core.config.TenantContext;
 import com.cooperativa.core.dto.SocioRequestDTO;
 import com.cooperativa.core.model.Socio;
 import com.cooperativa.core.repository.SocioRepository;
+import com.cooperativa.core.repository.OtpVerificacionRepository;
+import com.cooperativa.core.repository.TokensRecuperacionRepository;
+import com.cooperativa.core.model.TokensRecuperacion;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class SocioService {
 
     @Autowired
     private SocioRepository socioRepository;
+
+    @Autowired
+    private OtpVerificacionRepository otpVerificacionRepository;
+
+    @Autowired
+    private ResendService resendService;
+
+    @Autowired
+    private TokensRecuperacionRepository tokensRecuperacionRepository;
 
     // CREAR UN NUEVO SOCIO
     @Transactional(rollbackFor = Exception.class)
@@ -29,6 +45,11 @@ public class SocioService {
             throw new IllegalStateException("Error: Ya existe un socio registrado con la identificacion " + dto.getIdentificacion() + " en esta cooperativa.");
         }
 
+        // Regla de Onboarding Estricto: El correo debe estar verificado con OTP
+        if (!otpVerificacionRepository.existsByEmailAndEmpresaIdAndVerificadoTrue(dto.getCorreo().trim().toLowerCase(), tenantId)) {
+            throw new IllegalStateException("Error de Onboarding: El correo electrónico " + dto.getCorreo() + " no ha sido verificado con código OTP.");
+        }
+
         Socio socio = new Socio();
         socio.setTipoIdentificacion(dto.getTipoIdentificacion());
         socio.setIdentificacion(dto.getIdentificacion());
@@ -37,6 +58,7 @@ public class SocioService {
         socio.setTelefono(dto.getTelefono());
         socio.setCorreo(dto.getCorreo());
         socio.setActividadEconomica(dto.getActividadEconomica());
+        socio.setLugarTrabajo(dto.getLugarTrabajo());
         socio.setIngresosMensuales(dto.getIngresosMensuales());
         socio.setGastosMensuales(dto.getGastosMensuales());
         socio.setDeudasActuales(dto.getDeudasActuales());
@@ -50,7 +72,67 @@ public class SocioService {
             socio.setEstado(dto.getEstado());
         }
 
-        return socioRepository.save(socio);
+        Socio socioCreado = socioRepository.save(socio);
+
+        // Generar Token de Recuperacion/Establecimiento de contraseña
+        String tokenRaw = UUID.randomUUID().toString();
+        String tokenHash = hashSha256(tokenRaw);
+
+        TokensRecuperacion tokenRec = new TokensRecuperacion();
+        tokenRec.setSocio(socioCreado);
+        tokenRec.setTokenHash(tokenHash);
+        tokenRec.setCanal("CORREO");
+        tokenRec.setFechaExpiracion(LocalDateTime.now().plusMinutes(15));
+        tokenRec.setUtilizado(false);
+        tokenRec.setIntentosFallidos(0);
+        tokensRecuperacionRepository.save(tokenRec);
+
+        // Cuerpo HTML Corporativo de Bienvenida y Activacion de Banca Digital
+        String welcomeLink = "http://localhost:5173/establecer-password?token=" + tokenRaw + "&identificacion=" + socioCreado.getIdentificacion();
+        String welcomeHtml = String.format(
+            "<!DOCTYPE html><html><head><style>" +
+            "body { font-family: Arial, sans-serif; background-color: #f8fafc; color: #1e293b; padding: 20px; }" +
+            ".card { max-width: 500px; margin: 0 auto; background: white; border-radius: 16px; padding: 30px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }" +
+            ".header { text-align: center; border-bottom: 2px solid #0054A6; padding-bottom: 15px; margin-bottom: 25px; }" +
+            ".logo { font-size: 20px; font-weight: bold; color: #0054A6; margin: 0; }" +
+            ".title { font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #0f172a; }" +
+            ".btn { display: inline-block; background-color: #0054A6; color: white !important; font-weight: bold; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin-top: 20px; text-align: center; }" +
+            ".footer { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 30px; border-top: 1px solid #f1f5f9; padding-top: 15px; }" +
+            "</style></head><body><div class=\"card\">" +
+            "<div class=\"header\"><div class=\"logo\">COOPERATIVA DE AHORRO Y CRÉDITO ITQ</div></div>" +
+            "<div class=\"title\">¡Bienvenido a la Cooperativa ITQ!</div>" +
+            "<p>Estimado/a <strong>%s</strong>,</p>" +
+            "<p>Su registro como socio ha sido completado con éxito. Ahora puede activar su acceso a la Banca Digital para realizar consultas, transferencias y pagos en línea.</p>" +
+            "<p>Por favor, haga clic en el botón a continuación para configurar su contraseña y activar su cuenta:</p>" +
+            "<div style=\"text-align: center;\"><a href=\"%s\" class=\"btn\">Activar Banca Digital</a></div>" +
+            "<p style=\"font-size: 12px; color: #64748b; margin-top: 20px;\">Este enlace es de uso único y tiene una validez de 15 minutos.</p>" +
+            "<div class=\"footer\">Este es un mensaje automático de la Cooperativa ITQ Ltda. Por favor no responda a este correo.</div>" +
+            "</div></body></html>",
+            socioCreado.getNombresCompletos(),
+            welcomeLink
+        );
+
+        resendService.enviarCorreo(socioCreado.getCorreo(), "Activa tu Banca Digital - Cooperativa", welcomeHtml);
+
+        return socioCreado;
+    }
+
+    private String hashSha256(String base) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(base.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception ex) {
+            throw new RuntimeException("Error al generar hash de seguridad para la sesion: ", ex);
+        }
     }
 
     // LEER TODOS LOS SOCIOS DEL TENANT ACTIVO
@@ -84,6 +166,7 @@ public class SocioService {
         socioExistente.setTelefono(dto.getTelefono());
         socioExistente.setCorreo(dto.getCorreo());
         socioExistente.setActividadEconomica(dto.getActividadEconomica());
+        socioExistente.setLugarTrabajo(dto.getLugarTrabajo());
         socioExistente.setIngresosMensuales(dto.getIngresosMensuales());
         socioExistente.setGastosMensuales(dto.getGastosMensuales());
         socioExistente.setDeudasActuales(dto.getDeudasActuales());
@@ -144,6 +227,94 @@ public class SocioService {
         socioRepository.save(socio);
 
         return avatarUrl;
+    }
+
+    // GUARDAR CÉDULA FRONTAL FÍSICA
+    @Transactional(rollbackFor = Exception.class)
+    public String guardarCedulaFrontal(Integer id, org.springframework.web.multipart.MultipartFile file) throws Exception {
+        Socio socio = obtenerPorId(id);
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("Error: El archivo provisto esta vacio.");
+        }
+
+        // Crear el directorio uploads/kyc si no existe
+        String uploadDir = System.getProperty("user.dir") + "/uploads/kyc/";
+        java.io.File dir = new java.io.File(uploadDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        String extension = "jpg";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
+        }
+
+        String filename = socio.getIdentificacion() + "_frontal_" + System.currentTimeMillis() + "." + extension;
+        java.io.File destFile = new java.io.File(dir, filename);
+
+        // Limpiar fotos previas de la cedula frontal del mismo socio
+        java.io.File[] files = dir.listFiles();
+        if (files != null) {
+            for (java.io.File f : files) {
+                if (f.getName().startsWith(socio.getIdentificacion() + "_frontal_")) {
+                    f.delete();
+                }
+            }
+        }
+
+        file.transferTo(destFile);
+
+        String url = "/uploads/kyc/" + filename;
+        socio.setFotoCedulaFrontalUrl(url);
+        socioRepository.save(socio);
+
+        return url;
+    }
+
+    // GUARDAR CÉDULA POSTERIOR FÍSICA
+    @Transactional(rollbackFor = Exception.class)
+    public String guardarCedulaPosterior(Integer id, org.springframework.web.multipart.MultipartFile file) throws Exception {
+        Socio socio = obtenerPorId(id);
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("Error: El archivo provisto esta vacio.");
+        }
+
+        // Crear el directorio uploads/kyc si no existe
+        String uploadDir = System.getProperty("user.dir") + "/uploads/kyc/";
+        java.io.File dir = new java.io.File(uploadDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        String extension = "jpg";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
+        }
+
+        String filename = socio.getIdentificacion() + "_posterior_" + System.currentTimeMillis() + "." + extension;
+        java.io.File destFile = new java.io.File(dir, filename);
+
+        // Limpiar fotos previas de la cedula posterior del mismo socio
+        java.io.File[] files = dir.listFiles();
+        if (files != null) {
+            for (java.io.File f : files) {
+                if (f.getName().startsWith(socio.getIdentificacion() + "_posterior_")) {
+                    f.delete();
+                }
+            }
+        }
+
+        file.transferTo(destFile);
+
+        String url = "/uploads/kyc/" + filename;
+        socio.setFotoCedulaPosteriorUrl(url);
+        socioRepository.save(socio);
+
+        return url;
     }
 
     // ELIMINAR FOTO DE PERFIL FISICA Y EN BASE DE DATOS
