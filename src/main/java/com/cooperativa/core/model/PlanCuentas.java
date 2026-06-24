@@ -25,4 +25,7 @@ public class PlanCuentas extends BaseEntity {
 
     @Column(name = "es_movimiento")
     private Boolean esMovimiento = true;
+
+    @Column(name = "estado", nullable = false, length = 20)
+    private String estado = "ACTIVO";
 }

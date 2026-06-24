@@ -25,6 +25,9 @@ public class AsientosCabecera extends BaseEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String glosa; // Descripción global de la transacción doble
 
+    @Column(name = "referencia", length = 100)
+    private String referencia;
+
     @Column(name = "fecha_asiento", nullable = false, updatable = false)
     private LocalDateTime fechaAsiento = LocalDateTime.now();
 

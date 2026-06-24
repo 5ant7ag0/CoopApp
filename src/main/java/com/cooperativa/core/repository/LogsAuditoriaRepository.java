@@ -13,4 +13,7 @@ public interface LogsAuditoriaRepository extends JpaRepository<LogsAuditoria, Lo
 
     // Permite al auditor interno rastrear todos los cambios hechos sobre una fila específica de un módulo
     List<LogsAuditoria> findByTablaAfectadaAndRegistroIdAndEmpresaId(String tablaAfectada, Integer registroId, Integer empresaId);
+
+    // Permite filtrar trazas de auditoría específicas por inquilino, tabla y acción
+    List<LogsAuditoria> findByEmpresaIdAndTablaAfectadaAndAccionOrderByFechaDesc(Integer empresaId, String tablaAfectada, String accion);
 }

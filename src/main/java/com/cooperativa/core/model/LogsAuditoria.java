@@ -21,6 +21,10 @@ public class LogsAuditoria extends BaseEntity {
     @Column(name = "usuario_admin_id")
     private Integer usuarioAdminId; // ID del empleado de la cooperativa (si aplica)
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "usuario_admin_id", insertable = false, updatable = false)
+    private UsuariosAdmin usuarioAdmin;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "socio_id")
     private Socio socio; // ID del socio (si la acción fue desde la App móvil)

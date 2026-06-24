@@ -9,9 +9,12 @@ import com.cooperativa.core.amortizacion.AmortizacionFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.retry.annotation.Backoff;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
@@ -24,6 +27,8 @@ import java.util.Map;
 
 @Service
 public class CreditoService {
+
+    private static final Logger log = LoggerFactory.getLogger(CreditoService.class);
 
     private static final MathContext MC = new MathContext(34, RoundingMode.HALF_EVEN);
 
@@ -64,14 +69,79 @@ public class CreditoService {
     @Autowired
     private TransaccionesLedgerRepository transaccionesLedgerRepository;
 
+    @Autowired
+    private EmpresaService empresaService;
+
     // ==========================================
     // FUNCIONES CRUD
     // ==========================================
 
     @Transactional(rollbackFor = Exception.class)
-    public Credito crearSolicitud(Credito credito) {
+    public Credito crearSolicitud(Credito credito, boolean presencial) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede crear una solicitud de crédito sin un X-Tenant-ID definido.");
+        }
+
+        if (credito.getSocio() == null || credito.getSocio().getId() == null) {
+            throw new IllegalArgumentException("Error: El socio es obligatorio.");
+        }
+
+        Empresa empresa = empresaService.obtenerMiEmpresa();
+
+        // Validar límites de monto de originación de crédito
+        BigDecimal montoSolicitado = credito.getMontoSolicitado();
+        if (montoSolicitado == null || 
+            montoSolicitado.compareTo(empresa.getMontoMinimoCredito()) < 0 || 
+            montoSolicitado.compareTo(empresa.getMontoMaximoCredito()) > 0) {
+            throw new IllegalArgumentException("Error Financiero: El monto del crédito solicitado ($" + montoSolicitado + ") debe estar en el rango de $" + empresa.getMontoMinimoCredito() + " a $" + empresa.getMontoMaximoCredito() + " USD.");
+        }
+
+        // Validar tasa de interés nominal máxima
+        if (credito.getTasaInteresAnual() == null || 
+            credito.getTasaInteresAnual().compareTo(empresa.getTasaInteresAnual()) > 0) {
+            if (credito.getTasaInteresAnual() == null) {
+                credito.setTasaInteresAnual(empresa.getTasaInteresAnual());
+            } else {
+                throw new IllegalArgumentException("Error Financiero: La tasa de interés anual (" + credito.getTasaInteresAnual() + "%) supera la tasa nominal máxima permitida por la cooperativa (" + empresa.getTasaInteresAnual() + "%).");
+            }
+        }
+
+        // Buscar cuenta de ahorros a la vista del socio
+        List<CuentasAhorros> cuentas = cuentasRepository.findBySocioIdAndEmpresaId(credito.getSocio().getId(), tenantId);
+        CuentasAhorros cuentaVista = cuentas.stream()
+                .filter(c -> "AHORRO_VISTA".equals(c.getTipo()) && "ACTIVA".equals(c.getEstado()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Error: El socio debe tener una cuenta de ahorros a la vista ACTIVA para procesar la solicitud de crédito."));
+
+        BigDecimal costoTramite = empresa.getCostoTramite().setScale(2, RoundingMode.HALF_UP);
+        if (cuentaVista.getSaldo().compareTo(costoTramite) < 0) {
+            throw new IllegalStateException("Fondos insuficientes para procesar el trámite. Se requiere un saldo mínimo de $" + costoTramite + " USD en la cuenta de ahorros a la vista.");
+        }
+
+        // Debitar el costo del trámite
+        BigDecimal saldoAnterior = cuentaVista.getSaldo().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal saldoNuevo = saldoAnterior.subtract(costoTramite).setScale(2, RoundingMode.HALF_UP);
+        cuentaVista.setSaldo(saldoNuevo);
+        cuentasRepository.save(cuentaVista);
+
+        // Registrar débito en el ledger para cuadre contable
+        TransaccionesLedger ledger = new TransaccionesLedger();
+        ledger.setCuenta(cuentaVista);
+        ledger.setTipoTransaccion("DEBITO");
+        ledger.setMonto(costoTramite);
+        ledger.setSaldoAnterior(saldoAnterior);
+        ledger.setSaldoResultante(saldoNuevo);
+        ledger.setCanal("APP_MOVIL");
+        ledger.setReferencia("REF-COST-SOL-" + System.currentTimeMillis());
+        ledger.setDescripcion((presencial ? "Originación Presencial - " : "") + "Costo de trámite y consulta de buró de crédito para solicitud N: CRE-" + System.currentTimeMillis() + " (Costo parametrizado: $" + costoTramite + ")");
+        ledger.setDireccionIp("127.0.0.1");
+        ledger.setDispositivoInfo("Core CoopApp System");
+        transaccionesLedgerRepository.save(ledger);
+
+        // Guardar solicitud de crédito
         credito.setNumeroCredito("CRE-" + System.currentTimeMillis());
-        credito.setEstado("SOLICITADO");
+        credito.setEstado(presencial ? "EN_REVISION" : "SOLICITADO");
         credito.setMontoDesembolsado(BigDecimal.ZERO);
         return creditoRepository.save(credito);
     }
@@ -162,9 +232,16 @@ public class CreditoService {
         credito.setFechaDesembolso(LocalDateTime.now());
         creditoRepository.save(credito);
 
-        // 5. Aplicar mutación de saldos en Ledger Bancario
+        Empresa empresa = empresaService.obtenerMiEmpresa();
+        BigDecimal tasaDesgravamen = empresa.getPorcentajeSeguroDesgravamen().divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP);
+
+        // Calcular Seguro de Desgravamen (dinámico) y Monto Líquido Acreditado
+        BigDecimal seguroDesgravamen = montoSolicitado.multiply(tasaDesgravamen).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal montoLiquido = montoSolicitado.subtract(seguroDesgravamen).setScale(2, RoundingMode.HALF_UP);
+
+        // 5. Aplicar mutación de saldos en Ledger Bancario (Acreditar únicamente el Monto Líquido)
         BigDecimal saldoAnterior = cuenta.getSaldo().setScale(2, RoundingMode.HALF_UP);
-        BigDecimal saldoResultante = saldoAnterior.add(montoSolicitado).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal saldoResultante = saldoAnterior.add(montoLiquido).setScale(2, RoundingMode.HALF_UP);
         cuenta.setSaldo(saldoResultante);
         cuentasRepository.save(cuenta);
 
@@ -172,45 +249,60 @@ public class CreditoService {
         TransaccionesLedger ledger = new TransaccionesLedger();
         ledger.setCuenta(cuenta);
         ledger.setTipoTransaccion("CREDITO");
-        ledger.setMonto(montoSolicitado);
+        ledger.setMonto(montoLiquido);
         ledger.setSaldoAnterior(saldoAnterior);
         ledger.setSaldoResultante(saldoResultante);
         ledger.setCanal("PROCESO_BATCH");
         ledger.setReferencia("REF-CRED-" + System.currentTimeMillis());
-        ledger.setDescripcion("Desembolso de Credito Contrato N: " + credito.getNumeroCredito());
+        ledger.setDescripcion("Desembolso de Credito Contrato N: " + credito.getNumeroCredito() + 
+                " (Seguro Desgravamen del " + empresa.getPorcentajeSeguroDesgravamen() + "% retenido: $" + seguroDesgravamen + ")");
         ledger.setDireccionIp(ipUsuario);
         ledger.setDispositivoInfo(dispositivo);
         TransaccionesLedger ledgerGuardado = transaccionesLedgerRepository.save(ledger);
 
-        // 6. REINGENIERÍA CONTABLE: Generación Automática del Asiento de Partida Doble Cuadrado
-        PlanCuentas cuentaCartera = planCuentasRepository.findByCodigoContableAndEmpresaId("1.4.01", tenantId)
-                .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable 1.4.01 no parametrizada."));
+        // 6. REINGENIERÍA CONTABLE: Generación Automática del Asiento de Partida Doble Cuadrado (3 líneas)
+        PlanCuentas cuentaCartera = empresa.getCuentaContableCartera();
+        if (cuentaCartera == null) {
+            throw new IllegalStateException("Error de Configuración: Cuenta contable para cartera no configurada en los parámetros de la empresa.");
+        }
 
         PlanCuentas cuentaObligaciones = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.05", tenantId)
                 .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable 2.1.01.05 no parametrizada."));
+
+        PlanCuentas cuentaSeguro = empresa.getCuentaContableSeguro();
+        if (cuentaSeguro == null) {
+            throw new IllegalStateException("Error de Configuración: Cuenta contable para seguro de desgravamen no configurada en los parámetros de la empresa.");
+        }
 
         // Estructurar Cabecera del Asiento
         AsientosCabecera cabecera = new AsientosCabecera();
         cabecera.setTransaccionLedger(ledgerGuardado);
         cabecera.setNumeroAsiento("AS-" + System.currentTimeMillis());
-        cabecera.setGlosa("Asiento contable automático por desembolso de crédito N: " + credito.getNumeroCredito());
+        cabecera.setGlosa("Asiento contable automático por desembolso de crédito N: " + credito.getNumeroCredito() + " con retención de seguro");
 
-        // Estructurar Renglones (Debe y Haber)
+        // Estructurar Renglones (Debe y Haber de Partida Doble Cuadrada de 3 Líneas)
         List<AsientosDetalle> detalles = new ArrayList<>();
 
-        // Apunte 1: Al DEBITO (Debe) - Sube el activo de Cartera de créditos
+        // Apunte 1: Al DEBITO (Debe) - Sube el activo de Cartera de créditos (100% de la deuda contractual)
         AsientosDetalle debitoCartera = new AsientosDetalle();
         debitoCartera.setPlanCuentas(cuentaCartera);
         debitoCartera.setTipoAsiento("DEBITO");
         debitoCartera.setMonto(montoSolicitado);
         detalles.add(debitoCartera);
 
-        // Apunte 2: Al CREDITO (Haber) - Aumenta el pasivo por Obligaciones con los Socios
+        // Apunte 2: Al CREDITO (Haber) - Aumenta el pasivo por Obligaciones con los Socios (99% Monto Líquido)
         AsientosDetalle creditoPasivo = new AsientosDetalle();
         creditoPasivo.setPlanCuentas(cuentaObligaciones);
         creditoPasivo.setTipoAsiento("CREDITO");
-        creditoPasivo.setMonto(montoSolicitado);
+        creditoPasivo.setMonto(montoLiquido);
         detalles.add(creditoPasivo);
+
+        // Apunte 3: Al CREDITO (Haber) - Ingreso por cobro anticipado de Seguro de Desgravamen (1% del seguro)
+        AsientosDetalle creditoSeguro = new AsientosDetalle();
+        creditoSeguro.setPlanCuentas(cuentaSeguro);
+        creditoSeguro.setTipoAsiento("CREDITO");
+        creditoSeguro.setMonto(seguroDesgravamen);
+        detalles.add(creditoSeguro);
 
         // Registrar y validar contabilidad cuadrada por software
         contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
@@ -224,7 +316,7 @@ public class CreditoService {
         log.setDireccionIp(ipUsuario);
         log.setDispositivoInfo(dispositivo);
         log.setValorAnterior(Map.of("estado", "APROBADO", "saldo_cuenta", saldoAnterior));
-        log.setValorNuevo(Map.of("estado", "DESEMBOLSADO", "saldo_cuenta", saldoResultante));
+        log.setValorNuevo(Map.of("estado", "DESEMBOLSADO", "saldo_cuenta", saldoResultante, "seguro_desgravamen", seguroDesgravamen, "monto_liquido", montoLiquido));
         logsAuditoriaService.registrarLog(log);
 
         return credito;
@@ -287,6 +379,13 @@ public class CreditoService {
             throw new IllegalArgumentException("Error de Seguridad: La cuenta no pertenece a esta institucion.");
         }
 
+        return ejecutarPagoCore(credito, cuenta, pagoDTO.getMonto(), canalTransaccion, cajeroId, ipUsuario, dispositivo);
+    }
+
+    @Transactional(isolation = Isolation.SERIALIZABLE, rollbackFor = Exception.class)
+    public Credito ejecutarPagoCore(Credito credito, CuentasAhorros cuenta, BigDecimal monto, String canalTransaccion, Integer cajeroId, String ipUsuario, String dispositivo) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+
         // 3. Cargar tabla de amortizacion del credito
         List<CuotasAmortizacion> cuotas = cuotasRepository.findByCreditoIdOrderByNumeroCuotaAsc(credito.getId());
 
@@ -306,7 +405,7 @@ public class CreditoService {
         }
 
         // Ajustar monto a cobrar si se ingresa un valor superior a la deuda remanente
-        BigDecimal montoAPagar = pagoDTO.getMonto().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal montoAPagar = monto.setScale(2, RoundingMode.HALF_UP);
         if (montoAPagar.compareTo(totalDeuda) > 0) {
             montoAPagar = totalDeuda;
         }
@@ -452,18 +551,111 @@ public class CreditoService {
         contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
 
         // 11. Registro en Bitacora de Auditoria JSONB
-        LogsAuditoria log = new LogsAuditoria();
-        log.setSocio(credito.getSocio());
-        log.setAccion("PAGO_CREDITO");
-        log.setTablaAfectada("creditos");
-        log.setRegistroId(credito.getId());
-        log.setDireccionIp(ipUsuario);
-        log.setDispositivoInfo(dispositivo);
-        log.setValorAnterior(Map.of("estado", creditoCancelado ? "DESEMBOLSADO" : "DESEMBOLSADO", "saldo_cuenta", saldoAnterior));
-        log.setValorNuevo(Map.of("estado", creditoCancelado ? "CANCELADO" : "DESEMBOLSADO", "saldo_cuenta", saldoResultante));
-        logsAuditoriaService.registrarLog(log);
+        LogsAuditoria logAuditoria = new LogsAuditoria();
+        logAuditoria.setSocio(credito.getSocio());
+        logAuditoria.setAccion("PAGO_CREDITO");
+        logAuditoria.setTablaAfectada("creditos");
+        logAuditoria.setRegistroId(credito.getId());
+        logAuditoria.setDireccionIp(ipUsuario);
+        logAuditoria.setDispositivoInfo(dispositivo);
+        logAuditoria.setValorAnterior(Map.of("estado", creditoCancelado ? "DESEMBOLSADO" : "DESEMBOLSADO", "saldo_cuenta", saldoAnterior));
+        logAuditoria.setValorNuevo(Map.of("estado", creditoCancelado ? "CANCELADO" : "DESEMBOLSADO", "saldo_cuenta", saldoResultante));
+        logsAuditoriaService.registrarLog(logAuditoria);
 
         return credito;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.SERIALIZABLE, rollbackFor = Exception.class)
+    public void ejecutarDebitoAutomaticoDeCuota(Long cuotaId) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede procesar debito sin X-Tenant-ID.");
+        }
+
+        CuotasAmortizacion cuota = cuotasRepository.findById(cuotaId)
+                .orElseThrow(() -> new IllegalArgumentException("Error: Cuota de amortizacion no encontrada. ID: " + cuotaId));
+
+        Credito credito = cuota.getCredito();
+        if (!"DESEMBOLSADO".equals(credito.getEstado()) && !"EN_MORA".equals(credito.getEstado())) {
+            return;
+        }
+
+        if ("PAGADA".equals(cuota.getEstado())) {
+            return;
+        }
+
+        Socio socio = credito.getSocio();
+
+        // Buscar cuenta de ahorros a la vista del socio
+        List<CuentasAhorros> cuentas = cuentasRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
+        CuentasAhorros cuentaVista = cuentas.stream()
+                .filter(c -> "AHORRO_VISTA".equals(c.getTipo()) && "ACTIVA".equals(c.getEstado()))
+                .findFirst()
+                .orElse(null);
+
+        if (cuentaVista == null) {
+            return;
+        }
+
+        // Calcular monto remanente adeudado en esta cuota exacta
+        BigDecimal moraPendiente = cuota.getMontoMoraAcumulado().subtract(cuota.getMontoMoraPagado()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal interesPendiente = cuota.getInteresProyectado().subtract(cuota.getInteresPagado()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal capitalPendiente = cuota.getCapitalProyectado().subtract(cuota.getCapitalPagado()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal montoCuota = moraPendiente.add(interesPendiente).add(capitalPendiente).setScale(2, RoundingMode.HALF_UP);
+
+        if (montoCuota.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        // Revisar saldo y pagar
+        if (cuentaVista.getSaldo().compareTo(montoCuota) >= 0) {
+            ejecutarPagoCore(
+                    credito,
+                    cuentaVista,
+                    montoCuota,
+                    "DEBITO_AUTOMATICO",
+                    null,
+                    "127.0.0.1",
+                    "SISTEMA_BATCH"
+            );
+        }
+    }
+
+    public void ejecutarDebitosAutomaticosParaTenant(LocalDate fecha) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        log.info("Iniciando ejecucion de debitos automaticos para Tenant ID: {} en la fecha: {}", tenantId, fecha);
+
+        List<CuotasAmortizacion> cuotasExigibles = cuotasRepository.findPendingCuotasExigibles(fecha);
+        log.info("Se encontraron {} cuotas exigibles/vencidas para procesar en Tenant ID: {}", cuotasExigibles.size(), tenantId);
+
+        int exitosos = 0;
+        int omitidos = 0;
+
+        for (CuotasAmortizacion cuota : cuotasExigibles) {
+            try {
+                BigDecimal moraPendiente = cuota.getMontoMoraAcumulado().subtract(cuota.getMontoMoraPagado()).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal interesPendiente = cuota.getInteresProyectado().subtract(cuota.getInteresPagado()).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal capitalPendiente = cuota.getCapitalProyectado().subtract(cuota.getCapitalPagado()).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal montoCuota = moraPendiente.add(interesPendiente).add(capitalPendiente).setScale(2, RoundingMode.HALF_UP);
+
+                Socio socio = cuota.getCredito().getSocio();
+                List<CuentasAhorros> cuentas = cuentasRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
+                CuentasAhorros cuentaVista = cuentas.stream()
+                        .filter(c -> "AHORRO_VISTA".equals(c.getTipo()) && "ACTIVA".equals(c.getEstado()))
+                        .findFirst()
+                        .orElse(null);
+
+                if (cuentaVista != null && cuentaVista.getSaldo().compareTo(montoCuota) >= 0) {
+                    ejecutarDebitoAutomaticoDeCuota(cuota.getId());
+                    exitosos++;
+                } else {
+                    omitidos++;
+                }
+            } catch (Exception e) {
+                log.error("Error al procesar debito automatico para cuota N: " + cuota.getNumeroCuota() + " de Credito ID: " + cuota.getCredito().getId() + ". Detalle: " + e.getMessage(), e);
+            }
+        }
+        log.info("Ejecucion finalizada para Tenant ID: {}. Resultados: {} debito(s) exitoso(s), {} omitido(s) por falta de fondos o inactividad.", tenantId, exitosos, omitidos);
     }
 
     // OBTENER CRONOGRAMA DE CUOTAS DE AMORTIZACION CON VALIDACION DE SEGURIDAD

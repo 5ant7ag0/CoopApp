@@ -212,6 +212,10 @@ public class CuentasAhorrosService {
                 .filter(c -> c.getEmpresaId().equals(tenantId))
                 .orElseThrow(() -> new IllegalArgumentException("Error: Cuenta de origen no encontrada en esta institucion."));
 
+        if ("APORTACIONES".equals(cuentaOrigen.getTipo())) {
+            throw new IllegalArgumentException("Error: No se permiten transferencias ni retiros desde cuentas de Aportaciones, ya que constituyen aportes de capital social.");
+        }
+
         // BLINDAJE DE PROPIEDAD: Si el rol es SOCIO, validar que la cuenta de origen le pertenezca
         if ("SOCIO".equals(authRol) && !cuentaOrigen.getSocio().getIdentificacion().equals(authUsername)) {
             throw new SecurityException("Error de Seguridad: Acceso denegado. No es propietario de la cuenta de origen.");
@@ -225,6 +229,10 @@ public class CuentasAhorrosService {
         CuentasAhorros cuentaDestino = cuentasAhorrosRepository.findById(dto.getCuentaDestinoId())
                 .filter(c -> c.getEmpresaId().equals(tenantId))
                 .orElseThrow(() -> new IllegalArgumentException("Error: Cuenta de destino no encontrada en esta institucion."));
+
+        if ("APORTACIONES".equals(cuentaDestino.getTipo())) {
+            throw new IllegalArgumentException("Error: No se permiten transferencias hacia cuentas de Aportaciones.");
+        }
 
         if (!"ACTIVA".equals(cuentaDestino.getEstado())) {
             throw new IllegalStateException("Error: La cuenta de destino no se encuentra activa.");
@@ -558,7 +566,11 @@ public class CuentasAhorrosService {
 
         // Control de activación automática para cuenta de aportaciones y socio
         if ("APORTACIONES".equals(cuenta.getTipo())) {
-            BigDecimal minAporte = new BigDecimal("20.00");
+            Empresa empresa = empresaService.obtenerMiEmpresa();
+            BigDecimal minAporte = empresa.getCuotaAportacionMensual();
+            if (minAporte == null) {
+                minAporte = new BigDecimal("20.00");
+            }
             if (saldoNuevo.compareTo(minAporte) >= 0) {
                 cuenta.setEstado("ACTIVA");
                 Socio socio = cuenta.getSocio();
@@ -667,6 +679,9 @@ public class CuentasAhorrosService {
         }
 
         CuentasAhorros cuenta = obtenerPorId(dto.getCuentaAhorrosId());
+        if ("APORTACIONES".equals(cuenta.getTipo())) {
+            throw new IllegalArgumentException("Error: No se permiten retiros desde cuentas de Aportaciones, ya que constituyen aportes de capital social.");
+        }
         if (!"ACTIVA".equals(cuenta.getEstado())) {
             throw new IllegalStateException("Error: La cuenta origen no está activa.");
         }
@@ -838,6 +853,10 @@ public class CuentasAhorrosService {
 
         if (optCabecera.isPresent()) {
             AsientosCabecera cabecera = optCabecera.get();
+            int anio = cabecera.getFechaAsiento().getYear();
+            if (contabilidadService.esAnioFiscalCerrado(anio, tenantId)) {
+                throw new IllegalStateException("Error de Seguridad: El año fiscal " + anio + " ya se encuentra cerrado. No se puede anular esta transacción.");
+            }
             // Eliminar detalles
             List<AsientosDetalle> detalles = asientosDetalleRepository.findByAsientoCabeceraId(cabecera.getId());
             asientosDetalleRepository.deleteAll(detalles);
@@ -859,7 +878,7 @@ public class CuentasAhorrosService {
 
     /**
      * Busca la cuenta de ahorros del socio ya sea por número de cuenta o por cédula.
-     * Retorna los detalles requeridos para la validación del cajero.
+     * Retorna los detalles requeridos para la validación del cajero, incluyendo todo su portafolio de cuentas.
      */
     public java.util.Map<String, Object> buscarCuentaParaCaja(String queryStr, Integer tenantId) {
         if (queryStr == null || queryStr.trim().isEmpty()) {
@@ -876,10 +895,16 @@ public class CuentasAhorrosService {
             java.util.Optional<Socio> optSocio = socioRepository.findByIdentificacionAndEmpresaId(queryStr.trim(), tenantId);
             if (optSocio.isPresent()) {
                 List<CuentasAhorros> cuentas = cuentasAhorrosRepository.findBySocioIdAndEmpresaId(optSocio.get().getId(), tenantId);
-                if (!cuentas.isEmpty()) {
-                    cuenta = cuentas.get(0); // Tomar la primera cuenta
-                } else {
-                    throw new IllegalArgumentException("El socio existe pero no posee cuentas de ahorros registradas.");
+                // Buscar preferentemente la cuenta AHORRO_VISTA activa o la primera activa
+                cuenta = cuentas.stream()
+                        .filter(c -> "AHORRO_VISTA".equals(c.getTipo()) && "ACTIVA".equals(c.getEstado()))
+                        .findFirst()
+                        .orElse(cuentas.stream()
+                                .filter(c -> "ACTIVA".equals(c.getEstado()))
+                                .findFirst()
+                                .orElse(cuentas.isEmpty() ? null : cuentas.get(0)));
+                if (cuenta == null) {
+                    throw new IllegalArgumentException("El socio existe pero no posee cuentas registradas.");
                 }
             }
         }
@@ -889,10 +914,25 @@ public class CuentasAhorrosService {
         }
 
         Socio socio = cuenta.getSocio();
+
+        // Obtener todas las cuentas activas del socio
+        List<CuentasAhorros> todasCuentas = cuentasAhorrosRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
+        List<java.util.Map<String, Object>> cuentasList = todasCuentas.stream()
+                .filter(c -> "ACTIVA".equals(c.getEstado()))
+                .map(c -> java.util.Map.<String, Object>of(
+                    "id", c.getId(),
+                    "numeroCuenta", c.getNumeroCuenta(),
+                    "tipo", c.getTipo(),
+                    "saldo", c.getSaldo(),
+                    "estado", c.getEstado()
+                ))
+                .toList();
+
         return java.util.Map.of(
             "cuentaId", cuenta.getId(),
             "numeroCuenta", cuenta.getNumeroCuenta(),
             "saldo", cuenta.getSaldo(),
+            "cuentas", cuentasList,
             "socio", java.util.Map.of(
                 "id", socio.getId(),
                 "identificacion", socio.getIdentificacion(),

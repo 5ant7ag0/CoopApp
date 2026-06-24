@@ -64,6 +64,31 @@ public class JwtSecurityInterceptor implements HandlerInterceptor {
                 }
             }
 
+            // Validar privilegios específicos de roles si aplica
+            if (handlerMethod.hasMethodAnnotation(RequiresRoles.class) ||
+                handlerMethod.getBeanType().isAnnotationPresent(RequiresRoles.class)) {
+                
+                RequiresRoles ann = handlerMethod.getMethodAnnotation(RequiresRoles.class);
+                if (ann == null) {
+                    ann = handlerMethod.getBeanType().getAnnotation(RequiresRoles.class);
+                }
+                
+                String[] requiredRoles = ann.value();
+                boolean hasRole = false;
+                for (String r : requiredRoles) {
+                    if (r.equals(rol)) {
+                        hasRole = true;
+                        break;
+                    }
+                }
+                
+                if (!hasRole) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.getWriter().write("Error: Acceso denegado. Permisos insuficientes (rol no autorizado).");
+                    return false;
+                }
+            }
+
             // 5. Validar alineacion con el inquilino (Tenant ID)
             Integer currentTenant = TenantContext.getCurrentTenant();
 

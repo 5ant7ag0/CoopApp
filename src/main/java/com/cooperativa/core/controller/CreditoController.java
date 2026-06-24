@@ -24,9 +24,11 @@ public class CreditoController {
     // ==========================================
 
     @PostMapping("/solicitar")
-    public ResponseEntity<?> solicitarCredito(@RequestBody Credito credito) {
+    public ResponseEntity<?> solicitarCredito(
+            @RequestBody Credito credito,
+            @RequestParam(value = "presencial", required = false, defaultValue = "false") boolean presencial) {
         try {
-            return ResponseEntity.ok(creditoService.crearSolicitud(credito));
+            return ResponseEntity.ok(creditoService.crearSolicitud(credito, presencial));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

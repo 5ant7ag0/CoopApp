@@ -80,7 +80,7 @@ public class AuthService {
             throw new IllegalStateException("El usuario administrativo no se encuentra activo.");
         }
 
-        // Validar contrasena
+        // Validar contraseña
         if (!encryptionService.checkPassword(password, admin.getPasswordHash())) {
             throw new IllegalArgumentException("Credenciales invalidas para el usuario administrativo.");
         }

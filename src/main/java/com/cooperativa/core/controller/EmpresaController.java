@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.cooperativa.core.security.RequiresRoles;
+
 @RestController
 @RequestMapping("/empresas")
 @CrossOrigin(origins = "*")
@@ -13,6 +15,9 @@ public class EmpresaController {
 
     @Autowired
     private EmpresaService empresaService;
+
+    @Autowired
+    private com.cooperativa.core.repository.LogsAuditoriaRepository logsAuditoriaRepository;
 
     /**
      * Obtiene el perfil de la cooperativa en base al X-Tenant-ID enviado.
@@ -28,12 +33,44 @@ public class EmpresaController {
     }
 
     /**
-     * Actualiza los datos institucionales de la cooperativa activa.
+     * Actualiza los datos institucionales y financieros de la cooperativa activa.
      */
     @PutMapping("/mi-perfil")
-    public ResponseEntity<?> actualizarPerfil(@RequestBody Empresa empresa) {
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL"})
+    public ResponseEntity<?> actualizarPerfil(
+            @RequestBody Empresa empresa,
+            jakarta.servlet.http.HttpServletRequest request) {
         try {
-            return ResponseEntity.ok(empresaService.actualizarMiEmpresa(empresa));
+            String username = (String) request.getAttribute("authUsername");
+            String ipUsuario = request.getRemoteAddr();
+            String dispositivo = request.getHeader("User-Agent");
+
+            if ("0:0:0:0:0:0:0:1".equals(ipUsuario)) {
+                ipUsuario = "127.0.0.1";
+            }
+
+            return ResponseEntity.ok(empresaService.actualizarMiEmpresa(
+                    empresa,
+                    username,
+                    ipUsuario,
+                    dispositivo != null ? dispositivo : "Desconocido"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    /**
+     * Obtiene el historial de auditoría de modificaciones a los parámetros de la empresa.
+     */
+    @GetMapping("/mi-perfil/logs-auditoria")
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL"})
+    public ResponseEntity<?> obtenerLogsAuditoria() {
+        try {
+            Integer tenantId = com.cooperativa.core.config.TenantContext.getCurrentTenant();
+            return ResponseEntity.ok(logsAuditoriaRepository.findByEmpresaIdAndTablaAfectadaAndAccionOrderByFechaDesc(
+                    tenantId, "empresas", "ACTUALIZAR_PARAMETROS"
+            ));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

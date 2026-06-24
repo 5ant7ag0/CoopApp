@@ -221,7 +221,7 @@ CREATE TABLE usuarios_admin (
     password_hash VARCHAR(255) NOT NULL,
     nombres_completos VARCHAR(150) NOT NULL, -- Ampliado a 150 para coincidir con la entidad Java
     correo VARCHAR(100) NOT NULL,
-    rol VARCHAR(30) NOT NULL CHECK (rol IN ('SUPER_ADMIN_SAAS', 'GERENTE_GENERAL', 'OFICIAL_DE_CREDITO', 'CAJERO', 'AUDITOR_INTERNO')),
+    rol VARCHAR(30) NOT NULL CHECK (rol IN ('SUPER_ADMIN_SAAS', 'GERENTE_GENERAL', 'OFICIAL_DE_CREDITO', 'CAJERO', 'AUDITOR_INTERNO', 'CONTADOR')),
     estado VARCHAR(20) DEFAULT 'ACTIVO',
     ultimo_login TIMESTAMP,
     ultima_ip VARCHAR(45),

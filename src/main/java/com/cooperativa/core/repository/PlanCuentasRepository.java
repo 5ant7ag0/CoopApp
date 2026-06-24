@@ -12,6 +12,9 @@ public interface PlanCuentasRepository extends JpaRepository<PlanCuentas, Intege
     // Encuentra todas las cuentas pertenecientes a la cooperativa activa
     List<PlanCuentas> findByEmpresaId(Integer empresaId);
 
+    // Encuentra todas las cuentas ordenadas por código contable de forma ascendente
+    List<PlanCuentas> findByEmpresaIdOrderByCodigoContableAsc(Integer empresaId);
+
     // Busca una cuenta específica por su código (Ej: "1.1.01.05") dentro de la cooperativa activa
     Optional<PlanCuentas> findByCodigoContableAndEmpresaId(String codigoContable, Integer empresaId);
 }

@@ -15,7 +15,7 @@ public class TenantInterceptor implements HandlerInterceptor {
         String tenantHeader = request.getHeader(TENANT_HEADER);
 
         // Si la petición viene de los canales digitales, el encabezado de empresa es obligatorio
-        if (tenantHeader != null && !tenantHeader.trim().isEmpty()) {
+        if (tenantHeader != null && !tenantHeader.trim().isEmpty()) { //debe pertenecer únicamente a este ID y no puede ser nulo o vacío
             try {
                 Integer tenantId = Integer.parseInt(tenantHeader);
                 TenantContext.setCurrentTenant(tenantId); // Seteamos el Tenant ID en memoria
