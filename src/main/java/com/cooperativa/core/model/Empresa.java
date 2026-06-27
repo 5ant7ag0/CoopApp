@@ -94,6 +94,12 @@ public class Empresa {
     @Column(name = "cuota_aportacion_mensual", precision = 15, scale = 2)
     private BigDecimal cuotaAportacionMensual;
 
+    @Column(name = "tasa_interes_pasiva", precision = 5, scale = 2)
+    private BigDecimal tasaInteresPasiva;
+
+    @Column(name = "dias_gracia_mora")
+    private Integer diasGraciaMora;
+
     // --- NUEVOS ENLACES CONTABLES (RELACIONES JPA) ---
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cuenta_contable_cartera_id")
@@ -106,6 +112,30 @@ public class Empresa {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cuenta_contable_papeleria_id")
     private PlanCuentas cuentaContablePapeleria;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "cuenta_contable_caja_id")
+    private PlanCuentas cuentaContableCaja;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "cuenta_contable_obligaciones_id")
+    private PlanCuentas cuentaContableObligaciones;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "cuenta_contable_gastos_intereses_id")
+    private PlanCuentas cuentaContableGastosIntereses;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "cuenta_contable_ingresos_intereses_id")
+    private PlanCuentas cuentaContableIngresosIntereses;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "cuenta_contable_mora_id")
+    private PlanCuentas cuentaContableMora;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "cuenta_contable_aportaciones_id")
+    private PlanCuentas cuentaContableAportaciones;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

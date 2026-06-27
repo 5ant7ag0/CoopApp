@@ -159,7 +159,13 @@ public class CreditoService {
         }
         Socio socio = socioRepository.findByIdentificacionAndEmpresaId(username, tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Error: Socio no encontrado en esta institución."));
-        return creditoRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
+        List<Credito> creditos = creditoRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
+        creditos.forEach(c -> {
+            if (c.getCuotas() != null) {
+                c.getCuotas().size(); // Force initialization of lazy collection
+            }
+        });
+        return creditos;
     }
 
     public Credito obtenerPorId(Integer id) {
@@ -697,5 +703,20 @@ public class CreditoService {
         credito.setEstado("RECHAZADO");
         credito.setMotivoRechazo(motivo);
         return creditoRepository.save(credito);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Credito> obtenerCreditosSocioPorId(Integer socioId) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede obtener créditos sin especificar la institución (X-Tenant-ID).");
+        }
+        List<Credito> creditos = creditoRepository.findBySocioIdAndEmpresaId(socioId, tenantId);
+        creditos.forEach(c -> {
+            if (c.getCuotas() != null) {
+                c.getCuotas().size(); // Force initialization of lazy collection
+            }
+        });
+        return creditos;
     }
 }

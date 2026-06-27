@@ -53,6 +53,9 @@ public class SocioRequestDTO {
     private String fotoPerfilUrl;
     private String fotoCedulaFrontalUrl;
     private String fotoCedulaPosteriorUrl;
+    private String firmaUrl;
     private Boolean esPep;
     private String estado;
+    private String estadoCivil;
+    private String profesion;
 }

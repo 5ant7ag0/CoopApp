@@ -65,6 +65,9 @@ public class Socio extends BaseEntity {
     @Column(name = "foto_cedula_posterior_url", length = 255)
     private String fotoCedulaPosteriorUrl;
 
+    @Column(name = "firma_url", length = 255)
+    private String firmaUrl;
+
     @Column(name = "es_pep")
     private Boolean esPep = false;
 
@@ -73,6 +76,12 @@ public class Socio extends BaseEntity {
 
     @Column(name = "phone_verified_at")
     private LocalDateTime phoneVerifiedAt;
+
+    @Column(name = "estado_civil", length = 50)
+    private String estadoCivil;
+
+    @Column(length = 100)
+    private String profesion;
 
     @Column(nullable = false, length = 20)
     private String estado = "PENDIENTE_APROBACION";

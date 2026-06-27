@@ -22,6 +22,10 @@ public class CuentasAhorros extends BaseEntity {
     @JoinColumn(name = "socio_id", nullable = false)
     private Socio socio;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "producto_ahorro_id")
+    private ProductoAhorro productoAhorro;
+
     @Column(name = "numero_cuenta", nullable = false, length = 20)
     private String numeroCuenta;
 
@@ -39,6 +43,15 @@ public class CuentasAhorros extends BaseEntity {
 
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVA";
+
+    @Column(name = "plazo_dias")
+    private Integer plazoDias;
+
+    @Column(name = "fecha_vencimiento")
+    private java.time.LocalDate fechaVencimiento;
+
+    @Column(name = "renovacion_automatica")
+    private Boolean renovacionAutomatica = false;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

@@ -5,6 +5,7 @@ import com.cooperativa.core.service.EmpresaService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.cooperativa.core.security.RequiresRoles;
 
@@ -71,6 +72,35 @@ public class EmpresaController {
             return ResponseEntity.ok(logsAuditoriaRepository.findByEmpresaIdAndTablaAfectadaAndAccionOrderByFechaDesc(
                     tenantId, "empresas", "ACTUALIZAR_PARAMETROS"
             ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    /**
+     * Sube el logo institucional de la empresa.
+     */
+    @PostMapping("/mi-perfil/logo")
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL"})
+    public ResponseEntity<?> subirLogo(
+            @RequestParam("file") MultipartFile file,
+            jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            String username = (String) request.getAttribute("authUsername");
+            String ipUsuario = request.getRemoteAddr();
+            String dispositivo = request.getHeader("User-Agent");
+
+            if ("0:0:0:0:0:0:0:1".equals(ipUsuario)) {
+                ipUsuario = "127.0.0.1";
+            }
+
+            String urlLogo = empresaService.guardarLogo(
+                    file,
+                    username,
+                    ipUsuario,
+                    dispositivo != null ? dispositivo : "Desconocido"
+            );
+            return ResponseEntity.ok(java.util.Map.of("logoUrl", urlLogo));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

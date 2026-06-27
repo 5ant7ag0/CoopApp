@@ -60,4 +60,8 @@ public class Credito extends BaseEntity {
 
     @Column(name = "motivo_rechazo", columnDefinition = "TEXT")
     private String motivoRechazo;
+
+    @OneToMany(mappedBy = "credito", fetch = FetchType.LAZY)
+    @OrderBy("numeroCuota ASC")
+    private java.util.List<CuotasAmortizacion> cuotas;
 }

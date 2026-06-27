@@ -18,5 +18,7 @@ public class CuentasAhorrosRequestDTO {
     @NotBlank(message = "El tipo de cuenta es obligatorio")
     private String tipo; // 'AHORRO_VISTA' o 'APORTACIONES'
 
+    private Integer productoAhorroId;
+
     private String estado;
 }

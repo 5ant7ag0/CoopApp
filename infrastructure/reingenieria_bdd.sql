@@ -270,6 +270,7 @@ CREATE TABLE socios (
     foto_perfil_url VARCHAR(255),
     foto_cedula_frontal_url VARCHAR(255),
     foto_cedula_posterior_url VARCHAR(255),
+    firma_url VARCHAR(255),
     
     es_pep BOOLEAN DEFAULT FALSE,
     email_verified_at TIMESTAMP,
@@ -305,7 +306,7 @@ CREATE TABLE socios_credenciales (
 
 -- 4. TIPOS ENUMS Y CUENTAS DE AHORRO / APORTACIONES
 
-CREATE TYPE tipo_cuenta_ahorro AS ENUM ('AHORRO_VISTA', 'APORTACIONES');
+CREATE TYPE tipo_cuenta_ahorro AS ENUM ('AHORRO_VISTA', 'APORTACIONES', 'AHORRO_PROGRAMADO', 'PLAZO_FIJO');
 CREATE TYPE tipo_aportacion AS ENUM ('OBLIGATORIA', 'VOLUNTARIA', 'EXTRAORDINARIA');
 CREATE TYPE tipo_movimiento AS ENUM ('DEBITO', 'CREDITO');
 CREATE TYPE estado_dpf AS ENUM ('CONSTITUIDO', 'RETENIDO', 'LIQUIDADO', 'ANULADO');

@@ -6,6 +6,7 @@ import com.cooperativa.core.service.CuentasAhorrosService;
 import com.cooperativa.core.dto.TransferenciaRequestDTO;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import com.cooperativa.core.security.RequiresRoles;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -308,13 +309,48 @@ public class CuentasAhorrosController {
     @GetMapping("/socio/{socioId}")
     public ResponseEntity<?> obtenerCuentasSocioPorId(@PathVariable Integer socioId, HttpServletRequest request) {
         String rol = (String) request.getAttribute("authRol");
-        if (!"CAJERO".equals(rol) && !"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol)) {
+        if (!"CAJERO".equals(rol) && !"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol) && !"ADMINISTRADOR".equals(rol)) {
             return ResponseEntity.status(403).body("Acceso denegado. Permisos insuficientes.");
         }
         try {
             return ResponseEntity.ok(cuentasAhorrosService.obtenerCuentasSocioPorId(socioId));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/aperturar")
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "OFICIAL_DE_CREDITO", "CAJERO"})
+    public ResponseEntity<?> aperturarCuenta(
+            @Valid @RequestBody com.cooperativa.core.dto.AperturaCuentaRequestDTO requestDTO,
+            HttpServletRequest request) {
+
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
+        String ipUsuario = request.getRemoteAddr();
+        String dispositivo = request.getHeader("User-Agent");
+
+        if ("0:0:0:0:0:0:0:1".equals(ipUsuario)) {
+            ipUsuario = "127.0.0.1";
+        }
+
+        try {
+            CuentasAhorros nuevaCuenta = cuentasAhorrosService.aperturarCuentaSocio(
+                    requestDTO.getSocioId(),
+                    requestDTO.getProductoAhorroId(),
+                    requestDTO.getMontoInicial(),
+                    null, // plazo
+                    null, // renovacionAutomatica
+                    username,
+                    rol,
+                    ipUsuario,
+                    dispositivo != null ? dispositivo : "Desconocido"
+            );
+            return ResponseEntity.ok(nuevaCuenta);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error al aperturar la cuenta: " + e.getMessage());
         }
     }
 
@@ -358,6 +394,69 @@ public class CuentasAhorrosController {
             return ResponseEntity.badRequest().body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error al anular la transacción: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Endpoint para autogestión de apertura de cuenta por parte del socio (banca digital).
+     * URL: POST http://localhost:8080/api/v1/cuentas/aperturar-socio
+     */
+    @PostMapping("/aperturar-socio")
+    public ResponseEntity<?> aperturarSocioSelf(
+            @RequestBody java.util.Map<String, Object> body,
+            HttpServletRequest request) {
+
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
+        String ipUsuario = request.getRemoteAddr();
+        String dispositivo = request.getHeader("User-Agent");
+
+        if ("0:0:0:0:0:0:0:1".equals(ipUsuario)) {
+            ipUsuario = "127.0.0.1";
+        }
+
+        if (username == null || !"SOCIO".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado. Solo los socios activos pueden autogestionar la apertura de cuentas.");
+        }
+
+        try {
+            if (!body.containsKey("productoAhorroId") || body.get("productoAhorroId") == null) {
+                return ResponseEntity.badRequest().body("Error: El producto de ahorro seleccionado es obligatorio.");
+            }
+            if (!body.containsKey("montoInicial") || body.get("montoInicial") == null) {
+                return ResponseEntity.badRequest().body("Error: El monto de apertura inicial es obligatorio.");
+            }
+
+            Integer productoAhorroId = Integer.valueOf(body.get("productoAhorroId").toString());
+            java.math.BigDecimal montoInicial = new java.math.BigDecimal(body.get("montoInicial").toString());
+            Integer plazoDias = body.containsKey("plazo") && body.get("plazo") != null
+                    ? Integer.valueOf(body.get("plazo").toString())
+                    : null;
+            Boolean renovacionAutomatica = body.containsKey("renovacionAutomatica") && body.get("renovacionAutomatica") != null
+                    ? Boolean.valueOf(body.get("renovacionAutomatica").toString())
+                    : false;
+
+            com.cooperativa.core.model.Socio socio = cuentasAhorrosService.obtenerSocioPorIdentificacion(username);
+            if (socio == null) {
+                return ResponseEntity.badRequest().body("Error: No se pudo identificar al socio activo en el sistema.");
+            }
+
+            CuentasAhorros nuevaCuenta = cuentasAhorrosService.aperturarCuentaSocio(
+                    socio.getId(),
+                    productoAhorroId,
+                    montoInicial,
+                    plazoDias,
+                    renovacionAutomatica,
+                    username,
+                    rol,
+                    ipUsuario,
+                    dispositivo != null ? dispositivo : "Banca Digital Socio"
+            );
+            return ResponseEntity.ok(nuevaCuenta);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error al procesar la apertura de la cuenta: " + e.getMessage());
         }
     }
 }

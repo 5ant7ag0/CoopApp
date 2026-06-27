@@ -63,9 +63,15 @@ public class SocioController {
     }
 
     @PostMapping("/{id}/cedula-frontal")
-    public ResponseEntity<?> subirCedulaFrontal(@PathVariable Integer id, @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<?> subirCedulaFrontal(
+            @PathVariable Integer id, 
+            @RequestParam("file") MultipartFile file,
+            jakarta.servlet.http.HttpServletRequest request) {
         try {
-            String url = socioService.guardarCedulaFrontal(id, file);
+            String username = (String) request.getAttribute("authUsername");
+            String ip = request.getRemoteAddr();
+            String userAgent = request.getHeader("User-Agent");
+            String url = socioService.guardarCedulaFrontal(id, file, username, ip, userAgent);
             return ResponseEntity.ok(java.util.Map.of("fotoCedulaFrontalUrl", url));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -73,10 +79,32 @@ public class SocioController {
     }
 
     @PostMapping("/{id}/cedula-posterior")
-    public ResponseEntity<?> subirCedulaPosterior(@PathVariable Integer id, @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<?> subirCedulaPosterior(
+            @PathVariable Integer id, 
+            @RequestParam("file") MultipartFile file,
+            jakarta.servlet.http.HttpServletRequest request) {
         try {
-            String url = socioService.guardarCedulaPosterior(id, file);
+            String username = (String) request.getAttribute("authUsername");
+            String ip = request.getRemoteAddr();
+            String userAgent = request.getHeader("User-Agent");
+            String url = socioService.guardarCedulaPosterior(id, file, username, ip, userAgent);
             return ResponseEntity.ok(java.util.Map.of("fotoCedulaPosteriorUrl", url));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/{id}/firma")
+    public ResponseEntity<?> subirFirma(
+            @PathVariable Integer id, 
+            @RequestParam("file") MultipartFile file,
+            jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            String username = (String) request.getAttribute("authUsername");
+            String ip = request.getRemoteAddr();
+            String userAgent = request.getHeader("User-Agent");
+            String url = socioService.guardarFirma(id, file, username, ip, userAgent);
+            return ResponseEntity.ok(java.util.Map.of("firmaUrl", url));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

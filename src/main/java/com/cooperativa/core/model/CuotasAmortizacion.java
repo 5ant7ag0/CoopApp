@@ -21,6 +21,7 @@ public class CuotasAmortizacion {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "credito_id", nullable = false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private Credito credito;
 
     @Column(name = "numero_cuota", nullable = false)

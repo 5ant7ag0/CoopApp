@@ -53,6 +53,19 @@ public class CreditoController {
         }
     }
 
+    @GetMapping("/socio/{socioId}")
+    public ResponseEntity<?> obtenerCreditosSocioPorId(@PathVariable Integer socioId, HttpServletRequest request) {
+        String rol = (String) request.getAttribute("authRol");
+        if (!"CAJERO".equals(rol) && !"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol) && !"ADMINISTRADOR".equals(rol)) {
+            return ResponseEntity.status(403).body("Acceso denegado. Permisos insuficientes.");
+        }
+        try {
+            return ResponseEntity.ok(creditoService.obtenerCreditosSocioPorId(socioId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<?> obtenerPorId(@PathVariable Integer id) {
         try {

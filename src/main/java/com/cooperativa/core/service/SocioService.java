@@ -7,6 +7,9 @@ import com.cooperativa.core.repository.SocioRepository;
 import com.cooperativa.core.repository.OtpVerificacionRepository;
 import com.cooperativa.core.repository.TokensRecuperacionRepository;
 import com.cooperativa.core.model.TokensRecuperacion;
+import com.cooperativa.core.model.LogsAuditoria;
+import com.cooperativa.core.model.UsuariosAdmin;
+import com.cooperativa.core.repository.UsuarioAdminRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +19,7 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
 
 @Service
 public class SocioService {
@@ -31,6 +35,12 @@ public class SocioService {
 
     @Autowired
     private TokensRecuperacionRepository tokensRecuperacionRepository;
+
+    @Autowired
+    private UsuarioAdminRepository usuarioAdminRepository;
+
+    @Autowired
+    private LogsAuditoriaService logsAuditoriaService;
 
     // CREAR UN NUEVO SOCIO
     @Transactional(rollbackFor = Exception.class)
@@ -65,6 +75,8 @@ public class SocioService {
         socio.setFotoPerfilUrl(dto.getFotoPerfilUrl());
         socio.setFotoCedulaFrontalUrl(dto.getFotoCedulaFrontalUrl());
         socio.setFotoCedulaPosteriorUrl(dto.getFotoCedulaPosteriorUrl());
+        socio.setEstadoCivil(dto.getEstadoCivil());
+        socio.setProfesion(dto.getProfesion());
         if (dto.getEsPep() != null) {
             socio.setEsPep(dto.getEsPep());
         }
@@ -171,6 +183,11 @@ public class SocioService {
         socioExistente.setGastosMensuales(dto.getGastosMensuales());
         socioExistente.setDeudasActuales(dto.getDeudasActuales());
         socioExistente.setFotoPerfilUrl(dto.getFotoPerfilUrl());
+        socioExistente.setFotoCedulaFrontalUrl(dto.getFotoCedulaFrontalUrl());
+        socioExistente.setFotoCedulaPosteriorUrl(dto.getFotoCedulaPosteriorUrl());
+        socioExistente.setFirmaUrl(dto.getFirmaUrl());
+        socioExistente.setEstadoCivil(dto.getEstadoCivil());
+        socioExistente.setProfesion(dto.getProfesion());
         if (dto.getEsPep() != null) {
             socioExistente.setEsPep(dto.getEsPep());
         }
@@ -231,7 +248,7 @@ public class SocioService {
 
     // GUARDAR CÉDULA FRONTAL FÍSICA
     @Transactional(rollbackFor = Exception.class)
-    public String guardarCedulaFrontal(Integer id, org.springframework.web.multipart.MultipartFile file) throws Exception {
+    public String guardarCedulaFrontal(Integer id, org.springframework.web.multipart.MultipartFile file, String username, String ip, String userAgent) throws Exception {
         Socio socio = obtenerPorId(id);
 
         if (file.isEmpty()) {
@@ -267,15 +284,21 @@ public class SocioService {
         file.transferTo(destFile);
 
         String url = "/uploads/kyc/" + filename;
+        String valorAnterior = socio.getFotoCedulaFrontalUrl();
         socio.setFotoCedulaFrontalUrl(url);
         socioRepository.save(socio);
+
+        // Registrar Auditoria
+        registrarAuditoria(socio.getEmpresaId(), socio.getId(), "ACTUALIZAR_CEDULA_FRONTAL", username, ip, userAgent,
+            Map.of("campo", "fotoCedulaFrontalUrl", "valorAnterior", (valorAnterior != null ? valorAnterior : "NINGUNO")),
+            Map.of("campo", "fotoCedulaFrontalUrl", "valorNuevo", url));
 
         return url;
     }
 
     // GUARDAR CÉDULA POSTERIOR FÍSICA
     @Transactional(rollbackFor = Exception.class)
-    public String guardarCedulaPosterior(Integer id, org.springframework.web.multipart.MultipartFile file) throws Exception {
+    public String guardarCedulaPosterior(Integer id, org.springframework.web.multipart.MultipartFile file, String username, String ip, String userAgent) throws Exception {
         Socio socio = obtenerPorId(id);
 
         if (file.isEmpty()) {
@@ -311,10 +334,92 @@ public class SocioService {
         file.transferTo(destFile);
 
         String url = "/uploads/kyc/" + filename;
+        String valorAnterior = socio.getFotoCedulaPosteriorUrl();
         socio.setFotoCedulaPosteriorUrl(url);
         socioRepository.save(socio);
 
+        // Registrar Auditoria
+        registrarAuditoria(socio.getEmpresaId(), socio.getId(), "ACTUALIZAR_CEDULA_POSTERIOR", username, ip, userAgent,
+            Map.of("campo", "fotoCedulaPosteriorUrl", "valorAnterior", (valorAnterior != null ? valorAnterior : "NINGUNO")),
+            Map.of("campo", "fotoCedulaPosteriorUrl", "valorNuevo", url));
+
         return url;
+    }
+
+    // GUARDAR FIRMA FÍSICA
+    @Transactional(rollbackFor = Exception.class)
+    public String guardarFirma(Integer id, org.springframework.web.multipart.MultipartFile file, String username, String ip, String userAgent) throws Exception {
+        Socio socio = obtenerPorId(id);
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("Error: El archivo provisto esta vacio.");
+        }
+
+        // Crear el directorio uploads/kyc si no existe
+        String uploadDir = System.getProperty("user.dir") + "/uploads/kyc/";
+        java.io.File dir = new java.io.File(uploadDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        String extension = "jpg";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
+        }
+
+        String filename = socio.getIdentificacion() + "_firma_" + System.currentTimeMillis() + "." + extension;
+        java.io.File destFile = new java.io.File(dir, filename);
+
+        // Limpiar fotos previas de la firma del mismo socio
+        java.io.File[] files = dir.listFiles();
+        if (files != null) {
+            for (java.io.File f : files) {
+                if (f.getName().startsWith(socio.getIdentificacion() + "_firma_")) {
+                    f.delete();
+                }
+            }
+        }
+
+        file.transferTo(destFile);
+
+        String url = "/uploads/kyc/" + filename;
+        String valorAnterior = socio.getFirmaUrl();
+        socio.setFirmaUrl(url);
+        socioRepository.save(socio);
+
+        // Registrar Auditoria
+        registrarAuditoria(socio.getEmpresaId(), socio.getId(), "ACTUALIZAR_FIRMA", username, ip, userAgent,
+            Map.of("campo", "firmaUrl", "valorAnterior", (valorAnterior != null ? valorAnterior : "NINGUNO")),
+            Map.of("campo", "firmaUrl", "valorNuevo", url));
+
+        return url;
+    }
+
+    private void registrarAuditoria(Integer tenantId, Integer socioId, String accion, String username, String ip, String userAgent, Map<String, Object> anterior, Map<String, Object> nuevo) {
+        Integer adminId = null;
+        if (username != null) {
+            adminId = usuarioAdminRepository.findByUsernameAndEmpresaId(username, tenantId)
+                    .map(UsuariosAdmin::getId)
+                    .orElse(null);
+        }
+        if (adminId == null) {
+            List<UsuariosAdmin> admins = usuarioAdminRepository.findByEmpresaId(tenantId);
+            if (!admins.isEmpty()) {
+                adminId = admins.get(0).getId();
+            }
+        }
+
+        LogsAuditoria log = new LogsAuditoria();
+        log.setUsuarioAdminId(adminId);
+        log.setAccion(accion);
+        log.setTablaAfectada("socios");
+        log.setRegistroId(socioId);
+        log.setDireccionIp(ip != null ? ip : "127.0.0.1");
+        log.setDispositivoInfo(userAgent != null ? userAgent : "Web Portal");
+        log.setValorAnterior(anterior);
+        log.setValorNuevo(nuevo);
+        logsAuditoriaService.registrarLog(log);
     }
 
     // ELIMINAR FOTO DE PERFIL FISICA Y EN BASE DE DATOS

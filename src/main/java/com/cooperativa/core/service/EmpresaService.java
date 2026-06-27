@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
 @Service
@@ -69,11 +70,19 @@ public class EmpresaService {
         compararYAsignarBigDecimal("costoTramite", empresaExistente.getCostoTramite(), datosNuevos.getCostoTramite(), empresaExistente::setCostoTramite, valorAnterior, valorNuevo);
         compararYAsignarBigDecimal("porcentajeSeguroDesgravamen", empresaExistente.getPorcentajeSeguroDesgravamen(), datosNuevos.getPorcentajeSeguroDesgravamen(), empresaExistente::setPorcentajeSeguroDesgravamen, valorAnterior, valorNuevo);
         compararYAsignarBigDecimal("cuotaAportacionMensual", empresaExistente.getCuotaAportacionMensual(), datosNuevos.getCuotaAportacionMensual(), empresaExistente::setCuotaAportacionMensual, valorAnterior, valorNuevo);
+        compararYAsignarBigDecimal("tasaInteresPasiva", empresaExistente.getTasaInteresPasiva(), datosNuevos.getTasaInteresPasiva(), empresaExistente::setTasaInteresPasiva, valorAnterior, valorNuevo);
+        compararYAsignarInteger("diasGraciaMora", empresaExistente.getDiasGraciaMora(), datosNuevos.getDiasGraciaMora(), empresaExistente::setDiasGraciaMora, valorAnterior, valorNuevo);
 
         // Enlaces Contables
         actualizarCuentaContable("cuentaContableCartera", empresaExistente.getCuentaContableCartera(), datosNuevos.getCuentaContableCartera(), empresaExistente::setCuentaContableCartera, tenantId, valorAnterior, valorNuevo);
         actualizarCuentaContable("cuentaContableSeguro", empresaExistente.getCuentaContableSeguro(), datosNuevos.getCuentaContableSeguro(), empresaExistente::setCuentaContableSeguro, tenantId, valorAnterior, valorNuevo);
         actualizarCuentaContable("cuentaContablePapeleria", empresaExistente.getCuentaContablePapeleria(), datosNuevos.getCuentaContablePapeleria(), empresaExistente::setCuentaContablePapeleria, tenantId, valorAnterior, valorNuevo);
+        actualizarCuentaContable("cuentaContableCaja", empresaExistente.getCuentaContableCaja(), datosNuevos.getCuentaContableCaja(), empresaExistente::setCuentaContableCaja, tenantId, valorAnterior, valorNuevo);
+        actualizarCuentaContable("cuentaContableObligaciones", empresaExistente.getCuentaContableObligaciones(), datosNuevos.getCuentaContableObligaciones(), empresaExistente::setCuentaContableObligaciones, tenantId, valorAnterior, valorNuevo);
+        actualizarCuentaContable("cuentaContableGastosIntereses", empresaExistente.getCuentaContableGastosIntereses(), datosNuevos.getCuentaContableGastosIntereses(), empresaExistente::setCuentaContableGastosIntereses, tenantId, valorAnterior, valorNuevo);
+        actualizarCuentaContable("cuentaContableIngresosIntereses", empresaExistente.getCuentaContableIngresosIntereses(), datosNuevos.getCuentaContableIngresosIntereses(), empresaExistente::setCuentaContableIngresosIntereses, tenantId, valorAnterior, valorNuevo);
+        actualizarCuentaContable("cuentaContableMora", empresaExistente.getCuentaContableMora(), datosNuevos.getCuentaContableMora(), empresaExistente::setCuentaContableMora, tenantId, valorAnterior, valorNuevo);
+        actualizarCuentaContable("cuentaContableAportaciones", empresaExistente.getCuentaContableAportaciones(), datosNuevos.getCuentaContableAportaciones(), empresaExistente::setCuentaContableAportaciones, tenantId, valorAnterior, valorNuevo);
 
         Empresa guardada = empresaRepository.save(empresaExistente);
 
@@ -114,6 +123,14 @@ public class EmpresaService {
         if (nuevo != null && (actual == null || nuevo.compareTo(actual) != 0)) {
             valorAnterior.put(nombreCampo, actual != null ? actual.toString() : null);
             valorNuevo.put(nombreCampo, nuevo.toString());
+            setter.accept(nuevo);
+        }
+    }
+
+    private void compararYAsignarInteger(String nombreCampo, Integer actual, Integer nuevo, java.util.function.Consumer<Integer> setter, java.util.Map<String, Object> valorAnterior, java.util.Map<String, Object> valorNuevo) {
+        if (nuevo != null && !nuevo.equals(actual)) {
+            valorAnterior.put(nombreCampo, actual);
+            valorNuevo.put(nombreCampo, nuevo);
             setter.accept(nuevo);
         }
     }
@@ -218,5 +235,72 @@ public class EmpresaService {
         Empresa empresa = obtenerPorId(id);
         empresa.setEstado("INACTIVO");
         empresaRepository.save(empresa);
+    }
+
+    // GUARDAR LOGO INSTITUCIONAL FISICO
+    @Transactional(rollbackFor = Exception.class)
+    public String guardarLogo(MultipartFile file, String username, String ip, String dispositivo) throws Exception {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede guardar logo sin un X-Tenant-ID definido.");
+        }
+        Empresa empresa = obtenerMiEmpresa();
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("Error: El archivo provisto está vacío.");
+        }
+
+        // Crear el directorio uploads/logos si no existe
+        String uploadDir = System.getProperty("user.dir") + "/uploads/logos/";
+        java.io.File dir = new java.io.File(uploadDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+
+        // Obtener extensión
+        String originalFilename = file.getOriginalFilename();
+        String extension = "png";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
+        }
+
+        // Generar nombre único
+        String filename = "logo_" + tenantId + "_" + System.currentTimeMillis() + "." + extension;
+        java.io.File destFile = new java.io.File(dir, filename);
+
+        // Limpiar logos previos del mismo tenant
+        java.io.File[] files = dir.listFiles();
+        if (files != null) {
+            for (java.io.File f : files) {
+                if (f.getName().startsWith("logo_" + tenantId + "_")) {
+                    f.delete();
+                }
+            }
+        }
+
+        // Guardar archivo físico
+        file.transferTo(destFile);
+
+        // Guardar ruta en la base de datos
+        String logoUrl = "/uploads/logos/" + filename;
+        
+        // Registrar cambio en auditoría para logoUrl
+        com.cooperativa.core.model.LogsAuditoria log = new com.cooperativa.core.model.LogsAuditoria();
+        Integer usuarioId = resolverUsuarioId(username, tenantId);
+        log.setUsuarioAdminId(usuarioId);
+        log.setAccion("ACTUALIZAR_PARAMETROS");
+        log.setTablaAfectada("empresas");
+        log.setRegistroId(empresa.getId());
+        log.setValorAnterior(java.util.Map.of("logoUrl", empresa.getLogoUrl() != null ? empresa.getLogoUrl() : "No configurado"));
+        log.setValorNuevo(java.util.Map.of("logoUrl", logoUrl));
+        log.setDireccionIp(ip);
+        log.setDispositivoInfo(dispositivo);
+        
+        empresa.setLogoUrl(logoUrl);
+        empresaRepository.save(empresa);
+        
+        logsAuditoriaService.registrarLog(log);
+
+        return logoUrl;
     }
 }

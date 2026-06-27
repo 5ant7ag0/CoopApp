@@ -34,12 +34,19 @@ import com.lowagie.text.pdf.*;
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.time.format.DateTimeFormatter;
+import com.cooperativa.core.model.ProductoAhorro;
+import com.cooperativa.core.repository.ProductoAhorroRepository;
 
 @Service
 public class CuentasAhorrosService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CuentasAhorrosService.class);
+
     @Autowired
     private CuentasAhorrosRepository cuentasAhorrosRepository;
+
+    @Autowired
+    private ProductoAhorroRepository productoAhorroRepository;
 
     @Autowired
     private SocioRepository socioRepository;
@@ -89,7 +96,26 @@ public class CuentasAhorrosService {
         CuentasAhorros cuenta = new CuentasAhorros();
         cuenta.setSocio(socio);
         cuenta.setNumeroCuenta(dto.getNumeroCuenta());
-        cuenta.setTipo(dto.getTipo());
+
+        if (dto.getProductoAhorroId() != null) {
+            ProductoAhorro producto = productoAhorroRepository.findByIdAndEmpresaId(dto.getProductoAhorroId(), tenantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Error: Producto de ahorro no encontrado."));
+            if (!"ACTIVO".equals(producto.getEstado())) {
+                throw new IllegalStateException("Error: El producto de ahorro seleccionado no está activo.");
+            }
+            cuenta.setProductoAhorro(producto);
+            cuenta.setTasaInteresAnual(producto.getTasaInteresAnual());
+            cuenta.setTipo(producto.getTipoProducto());
+        } else {
+            cuenta.setTipo(dto.getTipo());
+            if ("AHORRO_VISTA".equals(dto.getTipo())) {
+                Empresa empresa = empresaService.obtenerMiEmpresa();
+                if (empresa != null && empresa.getTasaInteresPasiva() != null) {
+                    cuenta.setTasaInteresAnual(empresa.getTasaInteresPasiva());
+                }
+            }
+        }
+
         if (dto.getEstado() != null) {
             cuenta.setEstado(dto.getEstado());
         }
@@ -112,6 +138,14 @@ public class CuentasAhorrosService {
         Socio socio = socioRepository.findByIdentificacionAndEmpresaId(username, tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Error: Socio no encontrado en esta institucion."));
         return cuentasAhorrosRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
+    }
+
+    public Socio obtenerSocioPorIdentificacion(String identification) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede obtener el socio sin X-Tenant-ID.");
+        }
+        return socioRepository.findByIdentificacionAndEmpresaId(identification, tenantId).orElse(null);
     }
 
     // OBTENER CUENTA DESTINATARIA POR NÚMERO Y TENANT (BÚSQUEDA SEGURA INDIVIDUAL)
@@ -283,8 +317,23 @@ public class CuentasAhorrosService {
         transaccionesLedgerRepository.save(ledgerDestino);
 
         // 6. Asiento contable de partida doble cuadrado
-        PlanCuentas cuentaAhorrosPc = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.05", tenantId)
-                .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable 2.1.01.05 no parametrizada para esta institucion."));
+        PlanCuentas cuentaAhorrosPcOrigen;
+        if (cuentaOrigen.getProductoAhorro() != null && cuentaOrigen.getProductoAhorro().getCuentaContablePasivo() != null) {
+            cuentaAhorrosPcOrigen = cuentaOrigen.getProductoAhorro().getCuentaContablePasivo();
+        } else {
+            String cod = "APORTACIONES".equals(cuentaOrigen.getTipo()) ? "3.1.01.05" : "2.1.01.05";
+            cuentaAhorrosPcOrigen = planCuentasRepository.findByCodigoContableAndEmpresaId(cod, tenantId)
+                    .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable " + cod + " no parametrizada."));
+        }
+
+        PlanCuentas cuentaAhorrosPcDestino;
+        if (cuentaDestino.getProductoAhorro() != null && cuentaDestino.getProductoAhorro().getCuentaContablePasivo() != null) {
+            cuentaAhorrosPcDestino = cuentaDestino.getProductoAhorro().getCuentaContablePasivo();
+        } else {
+            String cod = "APORTACIONES".equals(cuentaDestino.getTipo()) ? "3.1.01.05" : "2.1.01.05";
+            cuentaAhorrosPcDestino = planCuentasRepository.findByCodigoContableAndEmpresaId(cod, tenantId)
+                    .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable " + cod + " no parametrizada."));
+        }
 
         AsientosCabecera cabecera = new AsientosCabecera();
         cabecera.setTransaccionLedger(ledgerOrigenGuardado);
@@ -295,14 +344,14 @@ public class CuentasAhorrosService {
 
         // Apunte 1: Al DEBITO (Debe) - Disminuye el pasivo de la cuenta de ahorros origen (menos deuda con socio origen)
         AsientosDetalle debitoDetalle = new AsientosDetalle();
-        debitoDetalle.setPlanCuentas(cuentaAhorrosPc);
+        debitoDetalle.setPlanCuentas(cuentaAhorrosPcOrigen);
         debitoDetalle.setTipoAsiento("DEBITO");
         debitoDetalle.setMonto(monto);
         detalles.add(debitoDetalle);
 
         // Apunte 2: Al CREDITO (Haber) - Aumenta el pasivo de la cuenta de ahorros destino (más deuda con socio destino)
         AsientosDetalle creditoDetalle = new AsientosDetalle();
-        creditoDetalle.setPlanCuentas(cuentaAhorrosPc);
+        creditoDetalle.setPlanCuentas(cuentaAhorrosPcDestino);
         creditoDetalle.setTipoAsiento("CREDITO");
         creditoDetalle.setMonto(monto);
         detalles.add(creditoDetalle);
@@ -602,9 +651,14 @@ public class CuentasAhorrosService {
         PlanCuentas cuentaCaja = planCuentasRepository.findByCodigoContableAndEmpresaId("1.1.01.05", tenantId)
                 .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable 1.1.01.05 no parametrizada."));
 
-        final String codigoContable = "APORTACIONES".equals(cuenta.getTipo()) ? "3.1.01.05" : "2.1.01.05";
-        PlanCuentas cuentaAhorros = planCuentasRepository.findByCodigoContableAndEmpresaId(codigoContable, tenantId)
-                .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable " + codigoContable + " no parametrizada."));
+        PlanCuentas cuentaAhorros;
+        if (cuenta.getProductoAhorro() != null && cuenta.getProductoAhorro().getCuentaContablePasivo() != null) {
+            cuentaAhorros = cuenta.getProductoAhorro().getCuentaContablePasivo();
+        } else {
+            final String codigoContable = "APORTACIONES".equals(cuenta.getTipo()) ? "3.1.01.05" : "2.1.01.05";
+            cuentaAhorros = planCuentasRepository.findByCodigoContableAndEmpresaId(codigoContable, tenantId)
+                    .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable " + codigoContable + " no parametrizada."));
+        }
 
         AsientosCabecera cabecera = new AsientosCabecera();
         cabecera.setTransaccionLedger(ledgerGuardado);
@@ -679,9 +733,16 @@ public class CuentasAhorrosService {
         }
 
         CuentasAhorros cuenta = obtenerPorId(dto.getCuentaAhorrosId());
-        if ("APORTACIONES".equals(cuenta.getTipo())) {
+        
+        if (cuenta.getProductoAhorro() != null) {
+            String tipoRetiro = cuenta.getProductoAhorro().getTipoRetiro();
+            if ("RESTRINGIDO".equals(tipoRetiro)) {
+                throw new IllegalArgumentException("Error: No se permiten retiros desde este producto (" + cuenta.getProductoAhorro().getNombre() + "), posee retiros restringidos.");
+            }
+        } else if ("APORTACIONES".equals(cuenta.getTipo())) {
             throw new IllegalArgumentException("Error: No se permiten retiros desde cuentas de Aportaciones, ya que constituyen aportes de capital social.");
         }
+
         if (!"ACTIVA".equals(cuenta.getEstado())) {
             throw new IllegalStateException("Error: La cuenta origen no está activa.");
         }
@@ -714,9 +775,14 @@ public class CuentasAhorrosService {
         PlanCuentas cuentaCaja = planCuentasRepository.findByCodigoContableAndEmpresaId("1.1.01.05", tenantId)
                 .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable 1.1.01.05 no parametrizada."));
 
-        final String codigoContable = "APORTACIONES".equals(cuenta.getTipo()) ? "3.1.01.05" : "2.1.01.05";
-        PlanCuentas cuentaAhorros = planCuentasRepository.findByCodigoContableAndEmpresaId(codigoContable, tenantId)
-                .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable " + codigoContable + " no parametrizada."));
+        PlanCuentas cuentaAhorros;
+        if (cuenta.getProductoAhorro() != null && cuenta.getProductoAhorro().getCuentaContablePasivo() != null) {
+            cuentaAhorros = cuenta.getProductoAhorro().getCuentaContablePasivo();
+        } else {
+            final String codigoContable = "APORTACIONES".equals(cuenta.getTipo()) ? "3.1.01.05" : "2.1.01.05";
+            cuentaAhorros = planCuentasRepository.findByCodigoContableAndEmpresaId(codigoContable, tenantId)
+                    .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable " + codigoContable + " no parametrizada."));
+        }
 
         AsientosCabecera cabecera = new AsientosCabecera();
         cabecera.setTransaccionLedger(ledgerGuardado);
@@ -944,4 +1010,509 @@ public class CuentasAhorrosService {
             )
         );
     }
+
+    @Transactional(rollbackFor = Exception.class)
+    public CuentasAhorros aperturarCuentaSocio(Integer socioId, Integer productoAhorroId, BigDecimal montoInicial, Integer plazoDias, Boolean renovacionAutomatica, String authUsername, String authRol, String ipUsuario, String dispositivo) {
+        if (authUsername == null || authRol == null) {
+            throw new SecurityException("Error de Seguridad: Contexto de seguridad incompleto.");
+        }
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede procesar transacción sin X-Tenant-ID.");
+        }
+
+        // Obtener el socio
+        Socio socio = socioRepository.findById(socioId)
+                .filter(s -> s.getEmpresaId().equals(tenantId))
+                .orElseThrow(() -> new IllegalArgumentException("Error: Socio no encontrado en esta cooperativa."));
+
+        // Obtener el producto
+        ProductoAhorro producto = productoAhorroRepository.findByIdAndEmpresaId(productoAhorroId, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Error: Producto de ahorro no encontrado."));
+
+        if (!"ACTIVO".equals(producto.getEstado())) {
+            throw new IllegalStateException("Error: El producto de ahorro seleccionado no está activo.");
+        }
+
+        BigDecimal monto = montoInicial != null ? montoInicial.setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+
+        // Generar número de cuenta único
+        String numeroCuenta = generarNumeroCuentaUnico(producto.getTipoProducto(), tenantId);
+
+        CuentasAhorros cuenta = new CuentasAhorros();
+        cuenta.setSocio(socio);
+        cuenta.setNumeroCuenta(numeroCuenta);
+        cuenta.setProductoAhorro(producto);
+        cuenta.setTasaInteresAnual(producto.getTasaInteresAnual());
+        cuenta.setTipo(producto.getTipoProducto());
+
+        if ("PLAZO_FIJO".equals(producto.getTipoProducto()) || "AHORRO_PROGRAMADO".equals(producto.getTipoProducto())) {
+            if (plazoDias != null) {
+                if ("AHORRO_PROGRAMADO".equals(producto.getTipoProducto())) {
+                    cuenta.setPlazoDias(plazoDias * 30);
+                    cuenta.setFechaVencimiento(java.time.LocalDate.now().plusMonths(plazoDias));
+                } else {
+                    cuenta.setPlazoDias(plazoDias);
+                    cuenta.setFechaVencimiento(java.time.LocalDate.now().plusDays(plazoDias));
+                }
+            } else {
+                if ("AHORRO_PROGRAMADO".equals(producto.getTipoProducto())) {
+                    cuenta.setPlazoDias(360);
+                    cuenta.setFechaVencimiento(java.time.LocalDate.now().plusMonths(12));
+                } else {
+                    cuenta.setPlazoDias(180);
+                    cuenta.setFechaVencimiento(java.time.LocalDate.now().plusDays(180));
+                }
+            }
+            cuenta.setRenovacionAutomatica(renovacionAutomatica != null ? renovacionAutomatica : false);
+        }
+
+        cuenta.setSaldo(BigDecimal.ZERO); 
+        cuenta.setEstado("INACTIVA"); 
+
+        if (monto.compareTo(BigDecimal.ZERO) > 0) {
+            // Validar monto inicial frente al mínimo exigido
+            if (monto.compareTo(producto.getMontoMinimoApertura()) < 0) {
+                throw new IllegalArgumentException("Error: El monto inicial ($" + monto + ") no cumple con el monto mínimo de apertura ($" + producto.getMontoMinimoApertura() + ") exigido por el producto.");
+            }
+
+            // Buscar la cuenta principal de "Ahorro a la Vista" del socio
+            List<CuentasAhorros> cuentasSocio = cuentasAhorrosRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
+            CuentasAhorros cuentaVistaOrigen = cuentasSocio.stream()
+                    .filter(c -> "AHORRO_VISTA".equals(c.getTipo()) && "ACTIVA".equals(c.getEstado()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (cuentaVistaOrigen == null) {
+                throw new IllegalArgumentException("El socio no posee una cuenta de ahorros a la vista activa para debitar el fondeo inicial.");
+            }
+
+            // Fondeo por Transferencia Interna desde Ahorro a la Vista
+            BigDecimal saldoDisponible = cuentaVistaOrigen.getSaldo().setScale(2, RoundingMode.HALF_UP);
+            if (saldoDisponible.compareTo(monto) < 0) {
+                throw new IllegalStateException("Saldo insuficiente en la cuenta a la vista para realizar el fondeo inicial. Saldo disponible: $" + saldoDisponible);
+            }
+
+            // Débito origen
+            BigDecimal nuevoSaldoOrigen = saldoDisponible.subtract(monto);
+            cuentaVistaOrigen.setSaldo(nuevoSaldoOrigen);
+            cuentasAhorrosRepository.save(cuentaVistaOrigen);
+
+            // Crédito destino
+            cuenta.setSaldo(monto);
+            if ("APORTACIONES".equals(producto.getTipoProducto())) {
+                Empresa empresa = empresaService.obtenerMiEmpresa();
+                BigDecimal minAporte = empresa.getCuotaAportacionMensual();
+                if (minAporte == null) {
+                    minAporte = new BigDecimal("20.00");
+                }
+                if (monto.compareTo(minAporte) >= 0) {
+                    cuenta.setEstado("ACTIVA");
+                } else {
+                    cuenta.setEstado("INACTIVA");
+                }
+            } else {
+                cuenta.setEstado("ACTIVA");
+            }
+            CuentasAhorros cuentaGuardada = cuentasAhorrosRepository.save(cuenta);
+
+            // Ledger Débito (Origen)
+            TransaccionesLedger ledgerDebito = new TransaccionesLedger();
+            ledgerDebito.setCuenta(cuentaVistaOrigen);
+            ledgerDebito.setTipoTransaccion("DEBITO");
+            ledgerDebito.setMonto(monto);
+            ledgerDebito.setSaldoAnterior(saldoDisponible);
+            ledgerDebito.setSaldoResultante(nuevoSaldoOrigen);
+            ledgerDebito.setCanal("VENTANILLA");
+            ledgerDebito.setReferencia("REF-APT-DEB-" + System.currentTimeMillis());
+            ledgerDebito.setDescripcion("Débito fondeo inicial para apertura de cuenta " + producto.getNombre());
+            
+            Integer cajeroId = null;
+            UsuariosAdmin empleado = usuarioAdminRepository.findByUsernameAndEmpresaId(authUsername, tenantId).orElse(null);
+            if (empleado != null) {
+                cajeroId = empleado.getId();
+                ledgerDebito.setUsuarioAdminId(cajeroId);
+            }
+            ledgerDebito.setDireccionIp(ipUsuario);
+            ledgerDebito.setDispositivoInfo(dispositivo);
+            transaccionesLedgerRepository.save(ledgerDebito);
+
+            // Ledger Crédito (Destino)
+            TransaccionesLedger ledgerCredito = new TransaccionesLedger();
+            ledgerCredito.setCuenta(cuentaGuardada);
+            ledgerCredito.setTipoTransaccion("CREDITO");
+            ledgerCredito.setMonto(monto);
+            ledgerCredito.setSaldoAnterior(BigDecimal.ZERO);
+            ledgerCredito.setSaldoResultante(monto);
+            ledgerCredito.setCanal("VENTANILLA");
+            ledgerCredito.setReferencia("REF-APT-CRE-" + System.currentTimeMillis());
+            ledgerCredito.setDescripcion("Crédito fondeo inicial por apertura de cuenta " + producto.getNombre());
+            if (cajeroId != null) {
+                ledgerCredito.setUsuarioAdminId(cajeroId);
+            }
+            ledgerCredito.setDireccionIp(ipUsuario);
+            ledgerCredito.setDispositivoInfo(dispositivo);
+            TransaccionesLedger savedCredito = transaccionesLedgerRepository.save(ledgerCredito);
+
+            // Asiento Contable (Pasivo Origen -> Pasivo Destino)
+            PlanCuentas cuentaPasivoVista = cuentaVistaOrigen.getProductoAhorro() != null && cuentaVistaOrigen.getProductoAhorro().getCuentaContablePasivo() != null
+                    ? cuentaVistaOrigen.getProductoAhorro().getCuentaContablePasivo()
+                    : planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.05", tenantId)
+                            .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable 2.1.01.05 no parametrizada."));
+
+            PlanCuentas cuentaPasivoNuevo = producto.getCuentaContablePasivo();
+            if (cuentaPasivoNuevo == null) {
+                throw new IllegalStateException("Error de Configuración: Cuenta contable de pasivo no asociada al producto " + producto.getNombre());
+            }
+
+            AsientosCabecera cabecera = new AsientosCabecera();
+            cabecera.setTransaccionLedger(savedCredito);
+            cabecera.setNumeroAsiento("AS-APT-TR-" + System.currentTimeMillis());
+            cabecera.setGlosa("Apertura cuenta " + cuentaGuardada.getNumeroCuenta() + " vía transferencia de fondeo");
+
+            List<AsientosDetalle> detalles = new ArrayList<>();
+            AsientosDetalle d1 = new AsientosDetalle();
+            d1.setPlanCuentas(cuentaPasivoVista);
+            d1.setTipoAsiento("DEBITO");
+            d1.setMonto(monto);
+            detalles.add(d1);
+
+            AsientosDetalle d2 = new AsientosDetalle();
+            d2.setPlanCuentas(cuentaPasivoNuevo);
+            d2.setTipoAsiento("CREDITO");
+            d2.setMonto(monto);
+            detalles.add(d2);
+
+            contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
+
+            // Auditoría
+            LogsAuditoria log = new LogsAuditoria();
+            if (cajeroId != null) {
+                log.setUsuarioAdminId(cajeroId);
+            } else {
+                log.setSocio(socio);
+            }
+            log.setAccion("APERTURA_CUENTA_FONDEO_TR");
+            log.setTablaAfectada("cuentas_ahorros");
+            log.setRegistroId(cuentaGuardada.getId());
+            log.setDireccionIp(ipUsuario);
+            log.setDispositivoInfo(dispositivo);
+            log.setValorAnterior(Map.of("cuentaOrigenId", cuentaVistaOrigen.getId(), "saldoOrigenAnterior", saldoDisponible));
+            log.setValorNuevo(Map.of("cuentaOrigenId", cuentaVistaOrigen.getId(), "saldoOrigenNuevo", nuevoSaldoOrigen, "cuentaDestino", cuentaGuardada.getNumeroCuenta(), "monto", monto));
+            logsAuditoriaService.registrarLog(log);
+
+            return cuentaGuardada;
+
+        } else {
+            // Monto inicial es 0 -> solo abrimos la cuenta vacía
+            if ("APORTACIONES".equals(producto.getTipoProducto())) {
+                cuenta.setEstado("INACTIVA");
+            } else {
+                cuenta.setEstado("ACTIVA");
+            }
+            CuentasAhorros cuentaGuardada = cuentasAhorrosRepository.save(cuenta);
+
+            LogsAuditoria log = new LogsAuditoria();
+            UsuariosAdmin empleado = usuarioAdminRepository.findByUsernameAndEmpresaId(authUsername, tenantId).orElse(null);
+            if (empleado != null) {
+                log.setUsuarioAdminId(empleado.getId());
+            } else {
+                log.setSocio(socio);
+            }
+            log.setAccion("APERTURA_CUENTA_VACIA");
+            log.setTablaAfectada("cuentas_ahorros");
+            log.setRegistroId(cuentaGuardada.getId());
+            log.setDireccionIp(ipUsuario);
+            log.setDispositivoInfo(dispositivo);
+            log.setValorAnterior(Map.of());
+            log.setValorNuevo(Map.of("numeroCuenta", numeroCuenta, "producto", producto.getNombre()));
+            logsAuditoriaService.registrarLog(log);
+
+            return cuentaGuardada;
+        }
+    }
+
+    private String generarNumeroCuentaUnico(String tipoProducto, Integer empresaId) {
+        String prefix = "10";
+        if ("AHORRO_PROGRAMADO".equals(tipoProducto)) {
+            prefix = "12";
+        } else if ("PLAZO_FIJO".equals(tipoProducto)) {
+            prefix = "30";
+        } else if ("APORTACIONES".equals(tipoProducto)) {
+            prefix = "20";
+        }
+
+        String numeroCuenta;
+        boolean existe;
+        int maxIntentos = 100;
+        int intento = 0;
+        
+        do {
+            intento++;
+            if (intento > maxIntentos) {
+                throw new IllegalStateException("Error: No se pudo generar un número de cuenta único tras " + maxIntentos + " intentos.");
+            }
+            long randomDigits = (long) (Math.random() * 100000000L);
+            numeroCuenta = prefix + String.format("%08d", randomDigits);
+            existe = cuentasAhorrosRepository.findByNumeroCuentaAndEmpresaId(numeroCuenta, empresaId).isPresent();
+        } while (existe);
+
+        return numeroCuenta;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int procesarVencimientosDiarios(java.time.LocalDate fecha) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede procesar vencimientos sin X-Tenant-ID.");
+        }
+        
+        List<CuentasAhorros> vencidas = cuentasAhorrosRepository.findInversionesVencidas(fecha, tenantId);
+        int count = 0;
+        for (CuentasAhorros cuenta : vencidas) {
+            try {
+                procesarVencimientoIndividual(cuenta, fecha);
+                count++;
+            } catch (Exception e) {
+                log.error("Error al procesar vencimiento individual de cuenta ID: " + cuenta.getId() + ". Detalle: " + e.getMessage(), e);
+            }
+        }
+        return count;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void procesarVencimientoIndividual(CuentasAhorros cuenta, java.time.LocalDate fecha) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        
+        // 1. Obtener producto de ahorro
+        ProductoAhorro producto = cuenta.getProductoAhorro();
+        if (producto == null) {
+            throw new IllegalStateException("Error: Cuenta de inversión no tiene un producto asociado.");
+        }
+        
+        // 2. Calcular montos
+        BigDecimal capital = cuenta.getSaldo().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal interesBruto = cuenta.getInteresAcumulado().setScale(2, RoundingMode.HALF_UP);
+        
+        // Retención en la fuente SRI (2% sobre el interés devengado)
+        BigDecimal retencionSRI = interesBruto.multiply(new BigDecimal("0.02")).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal interesNeto = interesBruto.subtract(retencionSRI).setScale(2, RoundingMode.HALF_UP);
+        
+        // 3. Buscar cuenta a la vista del socio para transferir
+        List<CuentasAhorros> cuentasSocio = cuentasAhorrosRepository.findBySocioIdAndEmpresaId(cuenta.getSocio().getId(), tenantId);
+        CuentasAhorros cuentaVista = cuentasSocio.stream()
+                .filter(c -> "AHORRO_VISTA".equals(c.getTipo()) && "ACTIVA".equals(c.getEstado()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("El socio no posee una cuenta de ahorros a la vista activa para liquidar su inversión."));
+        
+        // Cuentas contables para Asiento Contable
+        PlanCuentas cuentaPasivoInversion = producto.getCuentaContablePasivo();
+        if (cuentaPasivoInversion == null) {
+            String cod = "PLAZO_FIJO".equals(producto.getTipoProducto()) ? "2.1.03.05" : "2.1.01.05";
+            cuentaPasivoInversion = planCuentasRepository.findByCodigoContableAndEmpresaId(cod, tenantId)
+                    .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable pasivo no parametrizada para " + cod));
+        }
+
+        PlanCuentas cuentaPasivoProvision = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.10", tenantId)
+                .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable de provisión 2.1.01.10 no parametrizada."));
+
+        PlanCuentas cuentaPasivoRetencion = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.05.10", tenantId)
+                .orElseGet(() -> {
+                    PlanCuentas pc = new PlanCuentas();
+                    pc.setCodigoContable("2.1.05.10");
+                    pc.setNombreCuenta("Retenciones por Pagar SRI (Impuesto Intereses)");
+                    pc.setTipoCuenta("PASIVO");
+                    pc.setEsMovimiento(true);
+                    pc.setEstado("ACTIVO");
+                    return planCuentasRepository.save(pc);
+                });
+
+        PlanCuentas cuentaPasivoVista = cuentaVista.getProductoAhorro() != null && cuentaVista.getProductoAhorro().getCuentaContablePasivo() != null
+                ? cuentaVista.getProductoAhorro().getCuentaContablePasivo()
+                : planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.05", tenantId)
+                        .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable pasivo vista 2.1.01.05 no parametrizada."));
+
+        if (cuenta.getRenovacionAutomatica() != null && cuenta.getRenovacionAutomatica()) {
+            // --- CASO: RENOVACIÓN AUTOMÁTICA DE CAPITAL ---
+            // 1. Acreditar interés neto en cuenta vista del socio
+            BigDecimal saldoAnteriorVista = cuentaVista.getSaldo().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal nuevoSaldoVista = saldoAnteriorVista.add(interesNeto).setScale(2, RoundingMode.HALF_UP);
+            cuentaVista.setSaldo(nuevoSaldoVista);
+            cuentasAhorrosRepository.save(cuentaVista);
+            
+            // 2. Registrar Ledger de Crédito (Interés Neto) en Ahorro Vista
+            TransaccionesLedger ledgerCredito = new TransaccionesLedger();
+            ledgerCredito.setCuenta(cuentaVista);
+            ledgerCredito.setTipoTransaccion("CREDITO");
+            ledgerCredito.setMonto(interesNeto);
+            ledgerCredito.setSaldoAnterior(saldoAnteriorVista);
+            ledgerCredito.setSaldoResultante(nuevoSaldoVista);
+            ledgerCredito.setCanal("PROCESO_BATCH");
+            ledgerCredito.setReferencia("REF-LIQ-INT-" + System.currentTimeMillis());
+            ledgerCredito.setDescripcion("Acreditación de interés neto por renovación automática de inversión " + cuenta.getNumeroCuenta());
+            ledgerCredito.setDireccionIp("127.0.0.1");
+            ledgerCredito.setDispositivoInfo("Maturity Engine");
+            TransaccionesLedger savedLedger = transaccionesLedgerRepository.save(ledgerCredito);
+            
+            // 3. Renovar la cuenta de inversión (Actualizar vencimiento y tasa contable actual)
+            cuenta.setInteresAcumulado(BigDecimal.ZERO);
+            cuenta.setTasaInteresAnual(producto.getTasaInteresAnual()); // Tasa vigente
+            
+            // Determinar nuevo plazo en base al original guardado en la cuenta
+            int plazo = cuenta.getPlazoDias() != null ? cuenta.getPlazoDias() : 180;
+            if ("AHORRO_PROGRAMADO".equals(producto.getTipoProducto())) {
+                int meses = plazo / 30;
+                cuenta.setFechaVencimiento(java.time.LocalDate.now().plusMonths(meses));
+            } else {
+                cuenta.setFechaVencimiento(java.time.LocalDate.now().plusDays(plazo));
+            }
+            cuentasAhorrosRepository.save(cuenta);
+
+            // 4. Asiento Contable de Liquidación de Intereses con Retención SRI
+            if (interesBruto.compareTo(BigDecimal.ZERO) > 0) {
+                AsientosCabecera cabecera = new AsientosCabecera();
+                cabecera.setTransaccionLedger(savedLedger);
+                cabecera.setNumeroAsiento("AS-LIQ-REN-" + System.currentTimeMillis());
+                cabecera.setGlosa("Liquidación y retención intereses inversión " + cuenta.getNumeroCuenta() + " por renovación automática");
+                
+                List<AsientosDetalle> detalles = new ArrayList<>();
+                
+                // DEBE: Provisión de Intereses por Pagar
+                AsientosDetalle d1 = new AsientosDetalle();
+                d1.setPlanCuentas(cuentaPasivoProvision);
+                d1.setTipoAsiento("DEBITO");
+                d1.setMonto(interesBruto);
+                detalles.add(d1);
+                
+                // HABER: Retenciones por Pagar SRI
+                if (retencionSRI.compareTo(BigDecimal.ZERO) > 0) {
+                    AsientosDetalle d2 = new AsientosDetalle();
+                    d2.setPlanCuentas(cuentaPasivoRetencion);
+                    d2.setTipoAsiento("CREDITO");
+                    d2.setMonto(retencionSRI);
+                    detalles.add(d2);
+                }
+                
+                // HABER: Cuenta de Ahorro a la Vista del Socio
+                AsientosDetalle d3 = new AsientosDetalle();
+                d3.setPlanCuentas(cuentaPasivoVista);
+                d3.setTipoAsiento("CREDITO");
+                d3.setMonto(interesNeto);
+                detalles.add(d3);
+                
+                contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
+            }
+            
+            // Auditoría de Renovación
+            LogsAuditoria log = new LogsAuditoria();
+            log.setSocio(cuenta.getSocio());
+            log.setAccion("RENOVACION_AUTOMATICA_INVERSION");
+            log.setTablaAfectada("cuentas_ahorros");
+            log.setRegistroId(cuenta.getId());
+            log.setDireccionIp("127.0.0.1");
+            log.setDispositivoInfo("Maturity Engine");
+            log.setValorAnterior(Map.of("saldo", capital, "vencimientoAnterior", fecha.toString()));
+            log.setValorNuevo(Map.of("saldo", capital, "nuevoVencimiento", cuenta.getFechaVencimiento().toString(), "tasaRenovada", cuenta.getTasaInteresAnual(), "interesLiquidado", interesNeto));
+            logsAuditoriaService.registrarLog(log);
+            
+        } else {
+            // --- CASO: LIQUIDACIÓN COMPLETA Y CIERRE ---
+            BigDecimal totalFondeado = capital.add(interesNeto).setScale(2, RoundingMode.HALF_UP);
+            
+            // 1. Acreditar capital + interés neto en la cuenta a la vista del socio
+            BigDecimal saldoAnteriorVista = cuentaVista.getSaldo().setScale(2, RoundingMode.HALF_UP);
+            BigDecimal nuevoSaldoVista = saldoAnteriorVista.add(totalFondeado).setScale(2, RoundingMode.HALF_UP);
+            cuentaVista.setSaldo(nuevoSaldoVista);
+            cuentasAhorrosRepository.save(cuentaVista);
+            
+            // 2. Dejar saldo de inversión en cero y liquidar estado
+            cuenta.setSaldo(BigDecimal.ZERO);
+            cuenta.setInteresAcumulado(BigDecimal.ZERO);
+            cuenta.setEstado("LIQUIDADA");
+            cuentasAhorrosRepository.save(cuenta);
+            
+            // 3. Registrar Ledger Débito (Inversión)
+            TransaccionesLedger ledgerDebito = new TransaccionesLedger();
+            ledgerDebito.setCuenta(cuenta);
+            ledgerDebito.setTipoTransaccion("DEBITO");
+            ledgerDebito.setMonto(capital);
+            ledgerDebito.setSaldoAnterior(capital);
+            ledgerDebito.setSaldoResultante(BigDecimal.ZERO);
+            ledgerDebito.setCanal("PROCESO_BATCH");
+            ledgerDebito.setReferencia("REF-LIQ-DEB-" + System.currentTimeMillis());
+            ledgerDebito.setDescripcion("Débito liquidación total al vencimiento de inversión " + cuenta.getNumeroCuenta());
+            ledgerDebito.setDireccionIp("127.0.0.1");
+            ledgerDebito.setDispositivoInfo("Maturity Engine");
+            transaccionesLedgerRepository.save(ledgerDebito);
+            
+            // 4. Registrar Ledger Crédito (Ahorro Vista)
+            TransaccionesLedger ledgerCredito = new TransaccionesLedger();
+            ledgerCredito.setCuenta(cuentaVista);
+            ledgerCredito.setTipoTransaccion("CREDITO");
+            ledgerCredito.setMonto(totalFondeado);
+            ledgerCredito.setSaldoAnterior(saldoAnteriorVista);
+            ledgerCredito.setSaldoResultante(nuevoSaldoVista);
+            ledgerCredito.setCanal("PROCESO_BATCH");
+            ledgerCredito.setReferencia("REF-LIQ-CRE-" + System.currentTimeMillis());
+            ledgerCredito.setDescripcion("Fondeo liquidación inversión " + cuenta.getNumeroCuenta() + " (Capital: " + capital + " + Int. Neto: " + interesNeto + ")");
+            ledgerCredito.setDireccionIp("127.0.0.1");
+            ledgerCredito.setDispositivoInfo("Maturity Engine");
+            TransaccionesLedger savedLedger = transaccionesLedgerRepository.save(ledgerCredito);
+            
+            // 5. Asiento Contable de Liquidación (Pasivos -> Ahorros Vista y Retención SRI)
+            AsientosCabecera cabecera = new AsientosCabecera();
+            cabecera.setTransaccionLedger(savedLedger);
+            cabecera.setNumeroAsiento("AS-LIQ-TOT-" + System.currentTimeMillis());
+            cabecera.setGlosa("Liquidación al vencimiento y retención SRI de inversión " + cuenta.getNumeroCuenta());
+            
+            List<AsientosDetalle> detalles = new ArrayList<>();
+            
+            // DEBE: Pasivo de Inversión (Capital)
+            AsientosDetalle dCapital = new AsientosDetalle();
+            dCapital.setPlanCuentas(cuentaPasivoInversion);
+            dCapital.setTipoAsiento("DEBITO");
+            dCapital.setMonto(capital);
+            detalles.add(dCapital);
+            
+            // DEBE: Provisión de Intereses por Pagar
+            if (interesBruto.compareTo(BigDecimal.ZERO) > 0) {
+                AsientosDetalle dInteres = new AsientosDetalle();
+                dInteres.setPlanCuentas(cuentaPasivoProvision);
+                dInteres.setTipoAsiento("DEBITO");
+                dInteres.setMonto(interesBruto);
+                detalles.add(dInteres);
+            }
+            
+            // HABER: Retenciones por Pagar SRI
+            if (retencionSRI.compareTo(BigDecimal.ZERO) > 0) {
+                AsientosDetalle dRetencion = new AsientosDetalle();
+                dRetencion.setPlanCuentas(cuentaPasivoRetencion);
+                dRetencion.setTipoAsiento("CREDITO");
+                dRetencion.setMonto(retencionSRI);
+                detalles.add(dRetencion);
+            }
+            
+            // HABER: Cuenta de Ahorro a la Vista del Socio
+            AsientosDetalle dVista = new AsientosDetalle();
+            dVista.setPlanCuentas(cuentaPasivoVista);
+            dVista.setTipoAsiento("CREDITO");
+            dVista.setMonto(totalFondeado);
+            detalles.add(dVista);
+            
+            contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
+            
+            // Auditoría de Cierre
+            LogsAuditoria log = new LogsAuditoria();
+            log.setSocio(cuenta.getSocio());
+            log.setAccion("LIQUIDACION_COMPLETA_INVERSION");
+            log.setTablaAfectada("cuentas_ahorros");
+            log.setRegistroId(cuenta.getId());
+            log.setDireccionIp("127.0.0.1");
+            log.setDispositivoInfo("Maturity Engine");
+            log.setValorAnterior(Map.of("saldo", capital, "estado", "ACTIVA"));
+            log.setValorNuevo(Map.of("saldo", BigDecimal.ZERO, "estado", "LIQUIDADA", "capitalTransferido", capital, "interesBruto", interesBruto, "retencionSRI", retencionSRI, "netoFondeado", totalFondeado));
+            logsAuditoriaService.registrarLog(log);
+        }
+    }
+
 }

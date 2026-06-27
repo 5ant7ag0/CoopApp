@@ -17,6 +17,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
+import java.util.HashMap;
 
 @Service
 public class InteresAhorroService {
@@ -78,9 +80,6 @@ public class InteresAhorroService {
 
         // 3. Si hubo devengo mayor a cero, registrar el asiento contable de partida doble
         if (totalDevengado.compareTo(BigDecimal.ZERO) > 0) {
-            PlanCuentas cuentaGasto = planCuentasRepository.findByCodigoContableAndEmpresaId("4.1.01.05", tenantId)
-                    .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta de gastos 4.1.01.05 no parametrizada."));
-
             PlanCuentas cuentaPasivo = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.10", tenantId)
                     .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta de pasivos 2.1.01.10 no parametrizada."));
 
@@ -90,21 +89,38 @@ public class InteresAhorroService {
 
             List<AsientosDetalle> detalles = new ArrayList<>();
 
-            // Debe: Gastos de Intereses (Gasto aumenta)
-            AsientosDetalle d1 = new AsientosDetalle();
-            d1.setPlanCuentas(cuentaGasto);
-            d1.setTipoAsiento("DEBITO");
-            d1.setMonto(totalDevengado);
-            detalles.add(d1);
+            // Obtener el devengo agrupado por cuenta de gasto de cada producto
+            List<Object[]> devengosAgrupados = cuentasAhorrosRepository.obtenerInteresDevengadoAgrupadoPorGasto(tenantId);
+            BigDecimal totalValidado = BigDecimal.ZERO;
+
+            for (Object[] fila : devengosAgrupados) {
+                Integer gastoId = (Integer) fila[0];
+                BigDecimal montoFila = (BigDecimal) fila[1];
+
+                if (montoFila != null && montoFila.compareTo(BigDecimal.ZERO) > 0) {
+                    PlanCuentas cuentaGasto = planCuentasRepository.findById(gastoId)
+                            .orElseThrow(() -> new IllegalStateException("Error: Cuenta contable de gasto ID " + gastoId + " no encontrada."));
+
+                    AsientosDetalle dGasto = new AsientosDetalle();
+                    dGasto.setPlanCuentas(cuentaGasto);
+                    dGasto.setTipoAsiento("DEBITO");
+                    dGasto.setMonto(montoFila);
+                    detalles.add(dGasto);
+
+                    totalValidado = totalValidado.add(montoFila);
+                }
+            }
 
             // Haber: Intereses por Pagar (Pasivo aumenta)
-            AsientosDetalle d2 = new AsientosDetalle();
-            d2.setPlanCuentas(cuentaPasivo);
-            d2.setTipoAsiento("CREDITO");
-            d2.setMonto(totalDevengado);
-            detalles.add(d2);
+            if (totalValidado.compareTo(BigDecimal.ZERO) > 0) {
+                AsientosDetalle dPasivo = new AsientosDetalle();
+                dPasivo.setPlanCuentas(cuentaPasivo);
+                dPasivo.setTipoAsiento("CREDITO");
+                dPasivo.setMonto(totalValidado);
+                detalles.add(dPasivo);
 
-            asientoGuardado = contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
+                asientoGuardado = contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
+            }
         }
 
         // 4. Guardar registro del devengo para control de idempotencia
@@ -169,6 +185,7 @@ public class InteresAhorroService {
         // 2. Obtener todas las cuentas activas
         List<CuentasAhorros> cuentas = cuentasAhorrosRepository.findByEstadoAndTipoAndEmpresaId("ACTIVA", "AHORRO_VISTA", tenantId);
         BigDecimal totalCapitalizado = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        Map<PlanCuentas, BigDecimal> capitalizadoPorPasivo = new java.util.HashMap<>();
 
         for (CuentasAhorros cuenta : cuentas) {
             BigDecimal acumulado = cuenta.getInteresAcumulado();
@@ -198,6 +215,19 @@ public class InteresAhorroService {
             ledger.setDispositivoInfo("Batch Engine");
             transaccionesLedgerRepository.save(ledger);
 
+            // Registrar acumulación contable por cuenta de pasivo del producto
+            PlanCuentas cuentaPasivoSocio;
+            if (cuenta.getProductoAhorro() != null && cuenta.getProductoAhorro().getCuentaContablePasivo() != null) {
+                cuentaPasivoSocio = cuenta.getProductoAhorro().getCuentaContablePasivo();
+            } else {
+                String cod = "APORTACIONES".equals(cuenta.getTipo()) ? "3.1.01.05" : "2.1.01.05";
+                cuentaPasivoSocio = planCuentasRepository.findByCodigoContableAndEmpresaId(cod, tenantId)
+                        .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta " + cod + " no parametrizada."));
+            }
+
+            capitalizadoPorPasivo.put(cuentaPasivoSocio, 
+                    capitalizadoPorPasivo.getOrDefault(cuentaPasivoSocio, BigDecimal.ZERO).add(acumulado));
+
             totalCapitalizado = totalCapitalizado.add(acumulado);
         }
 
@@ -207,9 +237,6 @@ public class InteresAhorroService {
         if (totalCapitalizado.compareTo(BigDecimal.ZERO) > 0) {
             PlanCuentas cuentaPasivoAcumulado = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.10", tenantId)
                     .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta de pasivos 2.1.01.10 no parametrizada."));
-
-            PlanCuentas cuentaAhorrosSocios = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.05", tenantId)
-                    .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta de ahorros 2.1.01.05 no parametrizada."));
 
             AsientosCabecera cabecera = new AsientosCabecera();
             cabecera.setNumeroAsiento("AS-CAP-" + System.currentTimeMillis());
@@ -224,12 +251,14 @@ public class InteresAhorroService {
             d1.setMonto(totalCapitalizado);
             detalles.add(d1);
 
-            // Haber: Cuentas de Ahorros de Socios (Pasivo aumenta)
-            AsientosDetalle d2 = new AsientosDetalle();
-            d2.setPlanCuentas(cuentaAhorrosSocios);
-            d2.setTipoAsiento("CREDITO");
-            d2.setMonto(totalCapitalizado);
-            detalles.add(d2);
+            // Haber: Cuentas de Ahorros de Socios (Pasivo aumenta, agrupado por producto)
+            for (Map.Entry<PlanCuentas, BigDecimal> entrada : capitalizadoPorPasivo.entrySet()) {
+                AsientosDetalle d2 = new AsientosDetalle();
+                d2.setPlanCuentas(entrada.getKey());
+                d2.setTipoAsiento("CREDITO");
+                d2.setMonto(entrada.getValue());
+                detalles.add(d2);
+            }
 
             asientoGuardado = contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
         }
