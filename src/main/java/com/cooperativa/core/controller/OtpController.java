@@ -13,9 +13,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 
+import com.cooperativa.core.security.RequiresRoles;
+
 @RestController
 @RequestMapping("/otp")
 @CrossOrigin(origins = "*")
+@RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
 public class OtpController {
 
     @Autowired

@@ -102,7 +102,11 @@ public class AuthService {
         sesion.setEstado("ACTIVA");
         sesionesRepository.save(sesion);
 
-        return new LoginResponseDTO(token, admin.getUsername(), admin.getNombresCompletos(), admin.getRol(), tenantId);
+        // Registrar fecha de ultimo acceso
+        admin.setUltimoAcceso(LocalDateTime.now());
+        adminRepository.save(admin);
+
+        return new LoginResponseDTO(token, admin.getUsername(), admin.getNombresCompletos(), admin.getRol(), tenantId, admin.isCambiarPasswordProximoInicio());
     }
 
     /**

@@ -20,6 +20,7 @@ public class CuentasAhorrosController {
     private CuentasAhorrosService cuentasAhorrosService;
 
     @PostMapping
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> crear(@Valid @RequestBody CuentasAhorrosRequestDTO cuentaDto) {
         try {
             return ResponseEntity.ok(cuentasAhorrosService.crearCuenta(cuentaDto));
@@ -29,17 +30,15 @@ public class CuentasAhorrosController {
     }
 
     @GetMapping
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR"})
     public ResponseEntity<?> listarTodas() {
         return ResponseEntity.ok(cuentasAhorrosService.obtenerTodas());
     }
 
     @GetMapping("/mis-cuentas")
+    @RequiresRoles({"SOCIO"})
     public ResponseEntity<?> obtenerMisCuentas(HttpServletRequest request) {
         String username = (String) request.getAttribute("authUsername");
-        String rol = (String) request.getAttribute("authRol");
-        if (username == null || !"SOCIO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado. Solo los socios pueden ver sus cuentas.");
-        }
         try {
             return ResponseEntity.ok(cuentasAhorrosService.obtenerCuentasSocio(username));
         } catch (Exception e) {
@@ -48,6 +47,7 @@ public class CuentasAhorrosController {
     }
 
     @GetMapping("/{id}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "SOCIO"})
     public ResponseEntity<?> obtenerPorId(@PathVariable Integer id) {
         try {
             return ResponseEntity.ok(cuentasAhorrosService.obtenerPorId(id));
@@ -57,6 +57,7 @@ public class CuentasAhorrosController {
     }
 
     @PutMapping("/{id}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> actualizar(@PathVariable Integer id, @Valid @RequestBody CuentasAhorrosRequestDTO cuentaDto) {
         try {
             return ResponseEntity.ok(cuentasAhorrosService.actualizarCuenta(id, cuentaDto));
@@ -66,6 +67,7 @@ public class CuentasAhorrosController {
     }
 
     @DeleteMapping("/{id}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> eliminar(@PathVariable Integer id) {
         try {
             cuentasAhorrosService.eliminarLogico(id);
@@ -76,6 +78,7 @@ public class CuentasAhorrosController {
     }
 
     @GetMapping("/{id}/transacciones")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "SOCIO", "CAJERO"})
     public ResponseEntity<?> obtenerTransacciones(@PathVariable Integer id, HttpServletRequest request) {
         String username = (String) request.getAttribute("authUsername");
         String rol = (String) request.getAttribute("authRol");
@@ -93,16 +96,12 @@ public class CuentasAhorrosController {
      * URL: GET http://localhost:8080/api/v1/cuentas/buscar-destinatario
      */
     @GetMapping("/buscar-destinatario")
+    @RequiresRoles({"SOCIO", "CAJERO"})
     public ResponseEntity<?> buscarDestinatario(
             @RequestParam String numeroCuenta,
             HttpServletRequest request) {
 
         String username = (String) request.getAttribute("authUsername");
-        String rol = (String) request.getAttribute("authRol");
-
-        if (username == null || !"SOCIO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado. Solo los socios pueden buscar destinatarios.");
-        }
 
         try {
             CuentasAhorros cuenta = cuentasAhorrosService.obtenerDestinatarioPorNumero(numeroCuenta);
@@ -130,6 +129,7 @@ public class CuentasAhorrosController {
      * URL: POST http://localhost:8080/api/v1/cuentas/transferir
      */
     @PostMapping("/transferir")
+    @RequiresRoles({"SOCIO", "CAJERO"})
     public ResponseEntity<?> transferir(
             @Valid @RequestBody TransferenciaRequestDTO requestDTO,
             HttpServletRequest request) {
@@ -166,6 +166,7 @@ public class CuentasAhorrosController {
      * URL: POST http://localhost:8080/api/v1/cuentas/deposito
      */
     @PostMapping("/deposito")
+    @RequiresRoles({"CAJERO"})
     public ResponseEntity<?> registrarDeposito(
             @Valid @RequestBody com.cooperativa.core.dto.TransaccionVentanillaDTO requestDTO,
             HttpServletRequest request) {
@@ -202,6 +203,7 @@ public class CuentasAhorrosController {
      * URL: POST http://localhost:8080/api/v1/cuentas/retiro
      */
     @PostMapping("/retiro")
+    @RequiresRoles({"CAJERO"})
     public ResponseEntity<?> registrarRetiro(
             @Valid @RequestBody com.cooperativa.core.dto.TransaccionVentanillaDTO requestDTO,
             HttpServletRequest request) {
@@ -238,6 +240,7 @@ public class CuentasAhorrosController {
      * URL: GET http://localhost:8080/api/v1/cuentas/{id}/reporte-pdf
      */
     @GetMapping("/{id}/reporte-pdf")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "SOCIO"})
     public ResponseEntity<byte[]> obtenerReportePdf(
             @PathVariable Integer id,
             @RequestParam(required = false) Integer anio,
@@ -279,14 +282,10 @@ public class CuentasAhorrosController {
      * URL: GET http://localhost:8080/api/v1/cuentas/buscar-caja
      */
     @GetMapping("/buscar-caja")
+    @RequiresRoles({"CAJERO"})
     public ResponseEntity<?> buscarParaCaja(
             @RequestParam String query,
             HttpServletRequest request) {
-
-        String rol = (String) request.getAttribute("authRol");
-        if (!"CAJERO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado. Solo los cajeros pueden buscar cuentas para operaciones de caja.");
-        }
 
         Integer tenantId = com.cooperativa.core.config.TenantContext.getCurrentTenant();
         if (tenantId == null) {
@@ -307,11 +306,8 @@ public class CuentasAhorrosController {
      * URL: GET http://localhost:8080/api/v1/cuentas/socio/{socioId}
      */
     @GetMapping("/socio/{socioId}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "CAJERO"})
     public ResponseEntity<?> obtenerCuentasSocioPorId(@PathVariable Integer socioId, HttpServletRequest request) {
-        String rol = (String) request.getAttribute("authRol");
-        if (!"CAJERO".equals(rol) && !"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol) && !"ADMINISTRADOR".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado. Permisos insuficientes.");
-        }
         try {
             return ResponseEntity.ok(cuentasAhorrosService.obtenerCuentasSocioPorId(socioId));
         } catch (Exception e) {
@@ -320,7 +316,7 @@ public class CuentasAhorrosController {
     }
 
     @PostMapping("/aperturar")
-    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "OFICIAL_DE_CREDITO", "CAJERO"})
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> aperturarCuenta(
             @Valid @RequestBody com.cooperativa.core.dto.AperturaCuentaRequestDTO requestDTO,
             HttpServletRequest request) {
@@ -359,6 +355,7 @@ public class CuentasAhorrosController {
      * URL: POST http://localhost:8080/api/v1/cuentas/transacciones/{id}/anular
      */
     @PostMapping("/transacciones/{id}/anular")
+    @RequiresRoles({"CAJERO"})
     public ResponseEntity<?> anularTransaccion(
             @PathVariable Long id,
             @RequestBody java.util.Map<String, String> body,
@@ -402,6 +399,7 @@ public class CuentasAhorrosController {
      * URL: POST http://localhost:8080/api/v1/cuentas/aperturar-socio
      */
     @PostMapping("/aperturar-socio")
+    @RequiresRoles({"SOCIO"})
     public ResponseEntity<?> aperturarSocioSelf(
             @RequestBody java.util.Map<String, Object> body,
             HttpServletRequest request) {
@@ -415,9 +413,6 @@ public class CuentasAhorrosController {
             ipUsuario = "127.0.0.1";
         }
 
-        if (username == null || !"SOCIO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado. Solo los socios activos pueden autogestionar la apertura de cuentas.");
-        }
 
         try {
             if (!body.containsKey("productoAhorroId") || body.get("productoAhorroId") == null) {

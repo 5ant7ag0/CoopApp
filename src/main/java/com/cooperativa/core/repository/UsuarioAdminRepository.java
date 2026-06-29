@@ -14,4 +14,7 @@ public interface UsuarioAdminRepository extends JpaRepository<UsuariosAdmin, Int
 
     // Sirve para el futuro Login: Buscar usuario por su username dentro del tenant
     Optional<UsuariosAdmin> findByUsernameAndEmpresaId(String username, Integer empresaId);
+    
+    // Obtener qué usuario está asignado a una caja específica
+    Optional<UsuariosAdmin> findByCajaId(Integer cajaId);
 }

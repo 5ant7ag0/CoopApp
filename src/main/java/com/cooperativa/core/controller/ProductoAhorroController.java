@@ -40,7 +40,7 @@ public class ProductoAhorroController {
     }
 
     @PostMapping
-    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL"})
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> crear(@Valid @RequestBody ProductoAhorroRequestDTO dto, HttpServletRequest request) {
         String authUsername = (String) request.getAttribute("authUsername");
         try {
@@ -52,7 +52,7 @@ public class ProductoAhorroController {
     }
 
     @PutMapping("/{id}")
-    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL"})
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> actualizar(
             @PathVariable Integer id,
             @Valid @RequestBody ProductoAhorroRequestDTO dto,
@@ -67,7 +67,7 @@ public class ProductoAhorroController {
     }
 
     @DeleteMapping("/{id}")
-    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL"})
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> eliminar(@PathVariable Integer id, HttpServletRequest request) {
         String authUsername = (String) request.getAttribute("authUsername");
         try {

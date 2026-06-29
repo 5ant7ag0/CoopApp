@@ -16,4 +16,14 @@ public class LoginResponseDTO {
     private String nombresCompletos;
     private String rol;
     private Integer empresaId;
+    private boolean cambiarPasswordRequerido;
+
+    public LoginResponseDTO(String token, String username, String nombresCompletos, String rol, Integer empresaId) {
+        this.token = token;
+        this.username = username;
+        this.nombresCompletos = nombresCompletos;
+        this.rol = rol;
+        this.empresaId = empresaId;
+        this.cambiarPasswordRequerido = false;
+    }
 }

@@ -8,15 +8,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.cooperativa.core.security.RequiresRoles;
+
 @RestController
 @RequestMapping("/socios")
 @CrossOrigin(origins = "*")
+@RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR"})
 public class SocioController {
 
     @Autowired
     private SocioService socioService;
 
     @PostMapping
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> crear(@Valid @RequestBody SocioRequestDTO socioDto) {
         try {
             return ResponseEntity.ok(socioService.crearSocio(socioDto));
@@ -44,6 +48,7 @@ public class SocioController {
     }
 
     @PutMapping("/{id}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> actualizar(@PathVariable Integer id, @Valid @RequestBody SocioRequestDTO socioDto) {
         try {
             return ResponseEntity.ok(socioService.actualizarSocio(id, socioDto));
@@ -53,6 +58,7 @@ public class SocioController {
     }
 
     @PostMapping("/{id}/avatar")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> subirAvatar(@PathVariable Integer id, @RequestParam("file") MultipartFile file) {
         try {
             String avatarUrl = socioService.guardarAvatar(id, file);
@@ -63,6 +69,7 @@ public class SocioController {
     }
 
     @PostMapping("/{id}/cedula-frontal")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> subirCedulaFrontal(
             @PathVariable Integer id, 
             @RequestParam("file") MultipartFile file,
@@ -79,6 +86,7 @@ public class SocioController {
     }
 
     @PostMapping("/{id}/cedula-posterior")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> subirCedulaPosterior(
             @PathVariable Integer id, 
             @RequestParam("file") MultipartFile file,
@@ -95,6 +103,7 @@ public class SocioController {
     }
 
     @PostMapping("/{id}/firma")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> subirFirma(
             @PathVariable Integer id, 
             @RequestParam("file") MultipartFile file,
@@ -111,6 +120,7 @@ public class SocioController {
     }
 
     @DeleteMapping("/{id}/avatar")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> eliminarAvatar(@PathVariable Integer id) {
         try {
             socioService.eliminarAvatar(id);
@@ -121,6 +131,7 @@ public class SocioController {
     }
 
     @DeleteMapping("/{id}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> eliminar(@PathVariable Integer id) {
         try {
             socioService.eliminarLogico(id);

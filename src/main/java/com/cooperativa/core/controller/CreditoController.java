@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.cooperativa.core.security.RequiresRoles;
+
 @RestController
 @RequestMapping("/creditos")
 @CrossOrigin(origins = "*")
@@ -24,6 +26,7 @@ public class CreditoController {
     // ==========================================
 
     @PostMapping("/solicitar")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "SOCIO"})
     public ResponseEntity<?> solicitarCredito(
             @RequestBody Credito credito,
             @RequestParam(value = "presencial", required = false, defaultValue = "false") boolean presencial) {
@@ -35,17 +38,15 @@ public class CreditoController {
     }
 
     @GetMapping
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR"})
     public ResponseEntity<?> listarTodos() {
         return ResponseEntity.ok(creditoService.obtenerTodos());
     }
 
     @GetMapping("/mis-creditos")
+    @RequiresRoles({"SOCIO"})
     public ResponseEntity<?> obtenerMisCreditos(HttpServletRequest request) {
         String username = (String) request.getAttribute("authUsername");
-        String rol = (String) request.getAttribute("authRol");
-        if (username == null || !"SOCIO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado. Solo los socios pueden ver sus créditos.");
-        }
         try {
             return ResponseEntity.ok(creditoService.obtenerCreditosSocio(username));
         } catch (Exception e) {
@@ -54,11 +55,8 @@ public class CreditoController {
     }
 
     @GetMapping("/socio/{socioId}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "CAJERO"})
     public ResponseEntity<?> obtenerCreditosSocioPorId(@PathVariable Integer socioId, HttpServletRequest request) {
-        String rol = (String) request.getAttribute("authRol");
-        if (!"CAJERO".equals(rol) && !"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol) && !"ADMINISTRADOR".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado. Permisos insuficientes.");
-        }
         try {
             return ResponseEntity.ok(creditoService.obtenerCreditosSocioPorId(socioId));
         } catch (Exception e) {
@@ -67,6 +65,7 @@ public class CreditoController {
     }
 
     @GetMapping("/{id}")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "SOCIO", "CAJERO"})
     public ResponseEntity<?> obtenerPorId(@PathVariable Integer id) {
         try {
             return ResponseEntity.ok(creditoService.obtenerPorId(id));
@@ -76,11 +75,8 @@ public class CreditoController {
     }
 
     @PutMapping("/{id}/aprobar")
+    @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> aprobarCredito(@PathVariable Integer id, HttpServletRequest request) {
-        String rol = (String) request.getAttribute("authRol");
-        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes para aprobar créditos.");
-        }
 
         try {
             return ResponseEntity.ok(creditoService.aprobarCredito(id));
@@ -94,14 +90,10 @@ public class CreditoController {
     // ==========================================
 
     @PostMapping("/desembolsar")
+    @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> desembolsar(
             @RequestBody DesembolsoRequestDTO requestDTO,
             HttpServletRequest request) {
-
-        String rol = (String) request.getAttribute("authRol");
-        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol) && !"CAJERO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes para desembolsar créditos.");
-        }
 
         if (requestDTO.getCreditoId() == null || requestDTO.getCuentaAhorrosId() == null) {
             return ResponseEntity.badRequest().body("Error: Los campos 'creditoId' y 'cuentaAhorrosId' son obligatorios.");
@@ -135,6 +127,7 @@ public class CreditoController {
      * URL: http://localhost:8080/api/v1/creditos/pagar
      */
     @PostMapping("/pagar")
+    @RequiresRoles({"CAJERO", "SOCIO"})
     public ResponseEntity<?> pagar(
             @Valid @RequestBody PagoRequestDTO requestDTO,
             HttpServletRequest request) {
@@ -168,6 +161,7 @@ public class CreditoController {
     }
 
     @GetMapping("/{id}/amortizacion")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "SOCIO", "CAJERO"})
     public ResponseEntity<?> obtenerAmortizacion(@PathVariable Integer id, HttpServletRequest request) {
         String username = (String) request.getAttribute("authUsername");
         String rol = (String) request.getAttribute("authRol");
@@ -181,12 +175,9 @@ public class CreditoController {
     }
 
     @PutMapping("/{id}/revisar")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> revisarCredito(@PathVariable Integer id, HttpServletRequest request) {
         String username = (String) request.getAttribute("authUsername");
-        String rol = (String) request.getAttribute("authRol");
-        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes.");
-        }
 
         try {
             return ResponseEntity.ok(creditoService.revisarCredito(id, username));
@@ -196,14 +187,11 @@ public class CreditoController {
     }
 
     @PutMapping("/{id}/rechazar")
+    @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> rechazarCredito(
             @PathVariable Integer id,
             @RequestBody java.util.Map<String, String> payload,
             HttpServletRequest request) {
-        String rol = (String) request.getAttribute("authRol");
-        if (!"GERENTE_GENERAL".equals(rol) && !"OFICIAL_DE_CREDITO".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado: Permisos insuficientes para rechazar créditos.");
-        }
 
         String motivo = payload.get("motivo");
         if (motivo == null || motivo.trim().isEmpty()) {

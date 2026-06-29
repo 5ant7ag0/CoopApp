@@ -10,9 +10,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.cooperativa.core.security.RequiresRoles;
+
 @RestController
 @RequestMapping("/cajas")
 @CrossOrigin(origins = "*")
+@RequiresRoles({"CAJERO"})
 public class CajaDiariaController {
 
     @Autowired

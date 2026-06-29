@@ -5,9 +5,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.cooperativa.core.security.RequiresRoles;
+
 @RestController
 @RequestMapping("/contabilidad")
 @CrossOrigin(origins = "*")
+@RequiresRoles({"CONTADOR", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
 public class ContabilidadController {
 
     @Autowired
@@ -93,6 +96,7 @@ public class ContabilidadController {
      * URL: POST http://localhost:8080/api/v1/contabilidad/plan-cuentas
      */
     @PostMapping("/plan-cuentas")
+    @RequiresRoles({"CONTADOR"})
     public ResponseEntity<?> crearSubcuenta(@RequestBody CrearSubcuentaRequest request) {
         try {
             return ResponseEntity.ok(contabilidadService.crearSubcuenta(request.padreId(), request.nombreCuenta(), request.esMovimiento()));
@@ -106,6 +110,7 @@ public class ContabilidadController {
      * URL: PUT http://localhost:8080/api/v1/contabilidad/plan-cuentas/{id}/estado?estado=INACTIVO
      */
     @PutMapping("/plan-cuentas/{id}/estado")
+    @RequiresRoles({"CONTADOR"})
     public ResponseEntity<?> cambiarEstadoCuenta(
             @PathVariable Integer id,
             @RequestParam String estado) {
@@ -163,6 +168,7 @@ public class ContabilidadController {
      * URL: POST http://localhost:8080/api/v1/contabilidad/cierre
      */
     @PostMapping("/cierre")
+    @RequiresRoles({"CONTADOR"})
     public ResponseEntity<?> ejecutarCierreAnual(
             @RequestBody CierreRequest request,
             jakarta.servlet.http.HttpServletRequest httpRequest) {

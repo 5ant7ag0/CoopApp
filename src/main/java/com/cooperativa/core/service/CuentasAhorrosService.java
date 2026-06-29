@@ -981,10 +981,10 @@ public class CuentasAhorrosService {
 
         Socio socio = cuenta.getSocio();
 
-        // Obtener todas las cuentas activas del socio
+        // Obtener todas las cuentas activas e inactivas del socio (para permitir activación en ventanilla)
         List<CuentasAhorros> todasCuentas = cuentasAhorrosRepository.findBySocioIdAndEmpresaId(socio.getId(), tenantId);
         List<java.util.Map<String, Object>> cuentasList = todasCuentas.stream()
-                .filter(c -> "ACTIVA".equals(c.getEstado()))
+                .filter(c -> "ACTIVA".equals(c.getEstado()) || "INACTIVA".equals(c.getEstado()))
                 .map(c -> java.util.Map.<String, Object>of(
                     "id", c.getId(),
                     "numeroCuenta", c.getNumeroCuenta(),

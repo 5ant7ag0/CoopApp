@@ -20,7 +20,7 @@ public class UsuariosAdmin extends BaseEntity {
     private String username;
 
     @Column(name = "password_hash", nullable = false)
-    @com.fasterxml.jackson.annotation.JsonIgnore
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
     private String passwordHash;
 
     @Column(name = "nombres_completos", nullable = false, length = 150)
@@ -34,4 +34,28 @@ public class UsuariosAdmin extends BaseEntity {
 
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVO"; // 'ACTIVO' o 'INACTIVO'
+
+    @Column(nullable = false, unique = true, length = 20)
+    private String identificacion;
+
+    @Column(name = "foto_perfil_url", columnDefinition = "TEXT")
+    private String fotoPerfilUrl;
+
+    @Column(length = 20)
+    private String telefono;
+
+    @Column(length = 255)
+    private String direccion;
+
+    @Column(name = "cambiar_password_proximo_inicio", nullable = false)
+    private boolean cambiarPasswordProximoInicio = true;
+
+    @Column(name = "caja_id")
+    private Integer cajaId;
+
+    @Column(name = "limite_transaccion_max", nullable = false)
+    private java.math.BigDecimal limiteTransaccionMax = java.math.BigDecimal.ZERO;
+
+    @Column(name = "ultimo_acceso")
+    private java.time.LocalDateTime ultimoAcceso;
 }

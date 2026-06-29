@@ -3,8 +3,10 @@ package com.cooperativa.core.repository;
 import com.cooperativa.core.model.LogsAuditoria;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import java.time.LocalDateTime;
 import java.util.List;
-
 @Repository
 public interface LogsAuditoriaRepository extends JpaRepository<LogsAuditoria, Long> {
 
@@ -16,4 +18,13 @@ public interface LogsAuditoriaRepository extends JpaRepository<LogsAuditoria, Lo
 
     // Permite filtrar trazas de auditoría específicas por inquilino, tabla y acción
     List<LogsAuditoria> findByEmpresaIdAndTablaAfectadaAndAccionOrderByFechaDesc(Integer empresaId, String tablaAfectada, String accion);
+
+    // Permite filtrar los logs de un usuario específico dentro de un tenant sin paginación (legacy/export)
+    List<LogsAuditoria> findByUsuarioAdminIdAndEmpresaIdOrderByFechaDesc(Integer usuarioAdminId, Integer empresaId);
+
+    // Paginación y filtro de fechas
+    Page<LogsAuditoria> findByUsuarioAdminIdAndEmpresaIdAndFechaBetweenOrderByFechaDesc(Integer usuarioAdminId, Integer empresaId, LocalDateTime startDate, LocalDateTime endDate, Pageable pageable);
+    
+    // Paginación sin filtro de fechas
+    Page<LogsAuditoria> findByUsuarioAdminIdAndEmpresaIdOrderByFechaDesc(Integer usuarioAdminId, Integer empresaId, Pageable pageable);
 }
