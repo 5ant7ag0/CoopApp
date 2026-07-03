@@ -4,10 +4,13 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 @Getter
 @Setter
 @Entity
 @Table(name = "plan_cuentas")
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PlanCuentas extends BaseEntity {
 
     @Id

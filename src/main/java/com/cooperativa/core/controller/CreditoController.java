@@ -75,7 +75,7 @@ public class CreditoController {
     }
 
     @PutMapping("/{id}/aprobar")
-    @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> aprobarCredito(@PathVariable Integer id, HttpServletRequest request) {
 
         try {
@@ -90,7 +90,7 @@ public class CreditoController {
     // ==========================================
 
     @PostMapping("/desembolsar")
-    @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> desembolsar(
             @RequestBody DesembolsoRequestDTO requestDTO,
             HttpServletRequest request) {
@@ -187,7 +187,7 @@ public class CreditoController {
     }
 
     @PutMapping("/{id}/rechazar")
-    @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> rechazarCredito(
             @PathVariable Integer id,
             @RequestBody java.util.Map<String, String> payload,

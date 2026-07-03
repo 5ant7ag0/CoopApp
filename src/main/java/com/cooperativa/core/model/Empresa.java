@@ -73,21 +73,26 @@ public class Empresa {
     @Column(name = "saldo_minimo_apertura", precision = 15, scale = 2)
     private BigDecimal saldoMinimoApertura;
 
+    @Deprecated
     @Column(name = "monto_minimo_credito", precision = 15, scale = 2)
     private BigDecimal montoMinimoCredito;
 
+    @Deprecated
     @Column(name = "monto_maximo_credito", precision = 15, scale = 2)
     private BigDecimal montoMaximoCredito;
 
+    @Deprecated
     @Column(name = "tasa_interes_anual", precision = 5, scale = 2)
     private BigDecimal tasaInteresAnual;
 
+    @Deprecated
     @Column(name = "tasa_interes_mora", precision = 5, scale = 2)
     private BigDecimal tasaInteresMora;
 
     @Column(name = "costo_tramite", precision = 15, scale = 2)
     private BigDecimal costoTramite;
 
+    @Deprecated
     @Column(name = "porcentaje_seguro_desgravamen", precision = 5, scale = 2)
     private BigDecimal porcentajeSeguroDesgravamen;
 
@@ -101,10 +106,12 @@ public class Empresa {
     private Integer diasGraciaMora;
 
     // --- NUEVOS ENLACES CONTABLES (RELACIONES JPA) ---
+    @Deprecated
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cuenta_contable_cartera_id")
     private PlanCuentas cuentaContableCartera;
 
+    @Deprecated
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cuenta_contable_seguro_id")
     private PlanCuentas cuentaContableSeguro;
@@ -121,14 +128,17 @@ public class Empresa {
     @JoinColumn(name = "cuenta_contable_obligaciones_id")
     private PlanCuentas cuentaContableObligaciones;
 
+    @Deprecated
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cuenta_contable_gastos_intereses_id")
     private PlanCuentas cuentaContableGastosIntereses;
 
+    @Deprecated
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cuenta_contable_ingresos_intereses_id")
     private PlanCuentas cuentaContableIngresosIntereses;
 
+    @Deprecated
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cuenta_contable_mora_id")
     private PlanCuentas cuentaContableMora;

@@ -6,12 +6,15 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 @Getter
 @Setter
 @Entity
 @Table(name = "socios", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"empresa_id", "identificacion"})
 })
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Socio extends BaseEntity {
 
     @Id

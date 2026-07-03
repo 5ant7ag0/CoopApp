@@ -6,6 +6,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @Getter
 @Setter
@@ -13,6 +14,7 @@ import java.time.LocalDateTime;
 @Table(name = "cuotas_amortizacion", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"credito_id", "numero_cuota"})
 })
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class CuotasAmortizacion {
 
     @Id

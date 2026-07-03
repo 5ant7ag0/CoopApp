@@ -45,6 +45,12 @@ public class CreditoService {
     private CuentasAhorrosRepository cuentasRepository;
 
     @Autowired
+    private PlanCuentasRepository planCuentasRepository;
+
+    @Autowired
+    private ProductoCreditoRepository productoCreditoRepository;
+
+    @Autowired
     private SocioRepository socioRepository;
 
     @Autowired
@@ -63,8 +69,6 @@ public class CreditoService {
     @Autowired
     private ContabilidadService contabilidadService;
 
-    @Autowired
-    private PlanCuentasRepository planCuentasRepository;
 
     @Autowired
     private TransaccionesLedgerRepository transaccionesLedgerRepository;
@@ -87,25 +91,35 @@ public class CreditoService {
             throw new IllegalArgumentException("Error: El socio es obligatorio.");
         }
 
+        if (credito.getProductoCredito() == null || credito.getProductoCredito().getId() == null) {
+            throw new IllegalArgumentException("Error: El producto de crédito es obligatorio.");
+        }
+        
+        ProductoCredito producto = productoCreditoRepository.findByIdAndEmpresaId(credito.getProductoCredito().getId(), tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Error: Producto de crédito no encontrado."));
+                
+        credito.setProductoCredito(producto);
+        
         Empresa empresa = empresaService.obtenerMiEmpresa();
 
         // Validar límites de monto de originación de crédito
         BigDecimal montoSolicitado = credito.getMontoSolicitado();
         if (montoSolicitado == null || 
-            montoSolicitado.compareTo(empresa.getMontoMinimoCredito()) < 0 || 
-            montoSolicitado.compareTo(empresa.getMontoMaximoCredito()) > 0) {
-            throw new IllegalArgumentException("Error Financiero: El monto del crédito solicitado ($" + montoSolicitado + ") debe estar en el rango de $" + empresa.getMontoMinimoCredito() + " a $" + empresa.getMontoMaximoCredito() + " USD.");
+            montoSolicitado.compareTo(producto.getMontoMinimo()) < 0 || 
+            montoSolicitado.compareTo(producto.getMontoMaximo()) > 0) {
+            throw new IllegalArgumentException("Error Financiero: El monto del crédito solicitado ($" + montoSolicitado + ") debe estar en el rango de $" + producto.getMontoMinimo() + " a $" + producto.getMontoMaximo() + " USD.");
+        }
+        
+        // Validar límites de plazo
+        if (credito.getPlazoMeses() == null ||
+            credito.getPlazoMeses() < producto.getPlazoMinimoMeses() ||
+            credito.getPlazoMeses() > producto.getPlazoMaximoMeses()) {
+            throw new IllegalArgumentException("Error Financiero: El plazo solicitado (" + credito.getPlazoMeses() + " meses) debe estar en el rango de " + producto.getPlazoMinimoMeses() + " a " + producto.getPlazoMaximoMeses() + " meses.");
         }
 
-        // Validar tasa de interés nominal máxima
-        if (credito.getTasaInteresAnual() == null || 
-            credito.getTasaInteresAnual().compareTo(empresa.getTasaInteresAnual()) > 0) {
-            if (credito.getTasaInteresAnual() == null) {
-                credito.setTasaInteresAnual(empresa.getTasaInteresAnual());
-            } else {
-                throw new IllegalArgumentException("Error Financiero: La tasa de interés anual (" + credito.getTasaInteresAnual() + "%) supera la tasa nominal máxima permitida por la cooperativa (" + empresa.getTasaInteresAnual() + "%).");
-            }
-        }
+        // Asignar tasas del producto (Hardcoding erradicado)
+        credito.setTasaInteresAnual(producto.getTasaInteresAnual());
+        credito.setTasaMoraAnual(producto.getTasaMoraAnual());
 
         // Buscar cuenta de ahorros a la vista del socio
         List<CuentasAhorros> cuentas = cuentasRepository.findBySocioIdAndEmpresaId(credito.getSocio().getId(), tenantId);
@@ -239,7 +253,7 @@ public class CreditoService {
         creditoRepository.save(credito);
 
         Empresa empresa = empresaService.obtenerMiEmpresa();
-        BigDecimal tasaDesgravamen = empresa.getPorcentajeSeguroDesgravamen().divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP);
+        BigDecimal tasaDesgravamen = credito.getProductoCredito().getPorcentajeSeguroDesgravamen().divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP);
 
         // Calcular Seguro de Desgravamen (dinámico) y Monto Líquido Acreditado
         BigDecimal seguroDesgravamen = montoSolicitado.multiply(tasaDesgravamen).setScale(2, RoundingMode.HALF_UP);
@@ -261,23 +275,25 @@ public class CreditoService {
         ledger.setCanal("PROCESO_BATCH");
         ledger.setReferencia("REF-CRED-" + System.currentTimeMillis());
         ledger.setDescripcion("Desembolso de Credito Contrato N: " + credito.getNumeroCredito() + 
-                " (Seguro Desgravamen del " + empresa.getPorcentajeSeguroDesgravamen() + "% retenido: $" + seguroDesgravamen + ")");
+                " (Seguro Desgravamen del " + credito.getProductoCredito().getPorcentajeSeguroDesgravamen() + "% retenido: $" + seguroDesgravamen + ")");
         ledger.setDireccionIp(ipUsuario);
         ledger.setDispositivoInfo(dispositivo);
         TransaccionesLedger ledgerGuardado = transaccionesLedgerRepository.save(ledger);
 
         // 6. REINGENIERÍA CONTABLE: Generación Automática del Asiento de Partida Doble Cuadrado (3 líneas)
-        PlanCuentas cuentaCartera = empresa.getCuentaContableCartera();
+        PlanCuentas cuentaCartera = credito.getProductoCredito().getCuentaContableCartera();
         if (cuentaCartera == null) {
-            throw new IllegalStateException("Error de Configuración: Cuenta contable para cartera no configurada en los parámetros de la empresa.");
+            throw new IllegalStateException("Error de Configuración: Cuenta contable para cartera no configurada en los parámetros del producto de crédito.");
         }
 
         PlanCuentas cuentaObligaciones = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.05", tenantId)
                 .orElseThrow(() -> new IllegalStateException("Error de Configuración: Cuenta contable 2.1.01.05 no parametrizada."));
 
-        PlanCuentas cuentaSeguro = empresa.getCuentaContableSeguro();
-        if (cuentaSeguro == null) {
-            throw new IllegalStateException("Error de Configuración: Cuenta contable para seguro de desgravamen no configurada en los parámetros de la empresa.");
+        PlanCuentas cuentaSeguro = credito.getProductoCredito().getCuentaContableSeguro();
+        if (credito.getProductoCredito().getPorcentajeSeguroDesgravamen().compareTo(BigDecimal.ZERO) > 0) {
+            if (cuentaSeguro == null) {
+                throw new IllegalStateException("Error de Configuración: Cuenta contable para seguro de desgravamen no configurada en los parámetros del producto de crédito.");
+            }
         }
 
         // Estructurar Cabecera del Asiento
@@ -303,12 +319,14 @@ public class CreditoService {
         creditoPasivo.setMonto(montoLiquido);
         detalles.add(creditoPasivo);
 
-        // Apunte 3: Al CREDITO (Haber) - Ingreso por cobro anticipado de Seguro de Desgravamen (1% del seguro)
-        AsientosDetalle creditoSeguro = new AsientosDetalle();
-        creditoSeguro.setPlanCuentas(cuentaSeguro);
-        creditoSeguro.setTipoAsiento("CREDITO");
-        creditoSeguro.setMonto(seguroDesgravamen);
-        detalles.add(creditoSeguro);
+        // Apunte 3: Al CREDITO (Haber) - Ingreso por cobro anticipado de Seguro de Desgravamen (si aplica)
+        if (seguroDesgravamen.compareTo(BigDecimal.ZERO) > 0) {
+            AsientosDetalle creditoSeguro = new AsientosDetalle();
+            creditoSeguro.setPlanCuentas(cuentaSeguro);
+            creditoSeguro.setTipoAsiento("CREDITO");
+            creditoSeguro.setMonto(seguroDesgravamen);
+            detalles.add(creditoSeguro);
+        }
 
         // Registrar y validar contabilidad cuadrada por software
         contabilidadService.registrarAsientoCuadrado(cabecera, detalles);
@@ -583,8 +601,8 @@ public class CreditoService {
 
         // Apunte 2: Al CREDITO (Haber) - Disminuye el activo de Cartera de creditos (capital amortizado)
         if (totalCapitalPagado.compareTo(BigDecimal.ZERO) > 0) {
-            PlanCuentas cuentaCarteraPc = empresa.getCuentaContableCartera();
-            if (cuentaCarteraPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Cartera no parametrizada en Empresa.");
+            PlanCuentas cuentaCarteraPc = credito.getProductoCredito().getCuentaContableCartera();
+            if (cuentaCarteraPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Cartera no parametrizada en Producto de Crédito.");
 
             AsientosDetalle creditoCartera = new AsientosDetalle();
             creditoCartera.setPlanCuentas(cuentaCarteraPc);
@@ -595,8 +613,8 @@ public class CreditoService {
 
         // Apunte 3: Al CREDITO (Haber) - Aumenta el ingreso por intereses de cartera (interes cobrado)
         if (totalInteresPagado.compareTo(BigDecimal.ZERO) > 0) {
-            PlanCuentas cuentaIngresosPc = empresa.getCuentaContableIngresosIntereses();
-            if (cuentaIngresosPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Ingresos Intereses no parametrizada en Empresa.");
+            PlanCuentas cuentaIngresosPc = credito.getProductoCredito().getCuentaContableIngresosIntereses();
+            if (cuentaIngresosPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Ingresos Intereses no parametrizada en Producto de Crédito.");
 
             AsientosDetalle creditoIngresos = new AsientosDetalle();
             creditoIngresos.setPlanCuentas(cuentaIngresosPc);
@@ -607,8 +625,8 @@ public class CreditoService {
 
         // Apunte 4: Al CREDITO (Haber) - Aumenta el ingreso por mora (si existe)
         if (totalMoraPagada.compareTo(BigDecimal.ZERO) > 0) {
-            PlanCuentas cuentaMoraPc = empresa.getCuentaContableMora();
-            if (cuentaMoraPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Mora no parametrizada en Empresa.");
+            PlanCuentas cuentaMoraPc = credito.getProductoCredito().getCuentaContableMora();
+            if (cuentaMoraPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Mora no parametrizada en Producto de Crédito.");
 
             AsientosDetalle creditoMora = new AsientosDetalle();
             creditoMora.setPlanCuentas(cuentaMoraPc);

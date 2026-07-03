@@ -6,12 +6,15 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 @Getter
 @Setter
 @Entity
 @Table(name = "creditos", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"empresa_id", "numero_credito"})
 })
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Credito extends BaseEntity {
 
     @Id
@@ -24,6 +27,10 @@ public class Credito extends BaseEntity {
 
     @Column(name = "numero_credito", nullable = false, length = 20)
     private String numeroCredito;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "producto_credito_id")
+    private ProductoCredito productoCredito;
 
     @Column(name = "monto_solicitado", nullable = false)
     private BigDecimal montoSolicitado;
