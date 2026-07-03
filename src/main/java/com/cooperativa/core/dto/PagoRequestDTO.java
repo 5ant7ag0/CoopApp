@@ -18,8 +18,12 @@ public class PagoRequestDTO {
     @NotNull(message = "El ID del credito es obligatorio")
     private Integer creditoId;
 
-    @NotNull(message = "El ID de la cuenta de ahorros de origen es obligatorio")
-    private Integer cuentaAhorrosId;
+    @NotNull(message = "El origen de los fondos es obligatorio (CUENTA o EFECTIVO)")
+    private String origenFondos; // "CUENTA" o "EFECTIVO"
+
+    private Integer cuentaAhorrosId; // Obligatorio si origenFondos == "CUENTA"
+
+    private Integer cajaVentanillaId; // Opcional, para identificar la caja fisica si aplica
 
     @NotNull(message = "El monto a pagar es obligatorio")
     @Positive(message = "El monto a pagar debe ser mayor a cero")

@@ -360,10 +360,14 @@ public class CreditoService {
         // Enlace al control de caja si el operador es cajero
         Integer cajeroId = null;
         String canalTransaccion = "APP_MOVIL";
+        CajaDiaria cajaActiva = null;
+        
         if ("CAJERO".equals(authRol)) {
             UsuariosAdmin cajero = usuarioAdminRepository.findByUsernameAndEmpresaId(authUsername, tenantId)
                     .orElseThrow(() -> new IllegalArgumentException("Error: Cajero no encontrado."));
             cajaDiariaService.validarCajaAperturada(cajero.getId(), tenantId);
+            cajaActiva = cajaDiariaService.obtenerCajaActiva(authUsername)
+                    .orElseThrow(() -> new SecurityException("Error: Caja aperturada no encontrada para el cajero."));
             cajeroId = cajero.getId();
             canalTransaccion = "VENTANILLA";
         }
@@ -372,24 +376,31 @@ public class CreditoService {
             throw new IllegalStateException("Error Financiero: El credito no se encuentra en un estado que permita pagos (DESEMBOLSADO o EN_MORA).");
         }
 
-        // 2. Validar cuenta de ahorros de origen
-        CuentasAhorros cuenta = cuentasRepository.findById(pagoDTO.getCuentaAhorrosId())
-                .orElseThrow(() -> new IllegalArgumentException("Error: Cuenta de ahorros no encontrada."));
+        // 2. Validar origen de fondos
+        CuentasAhorros cuenta = null;
+        if ("CUENTA".equals(pagoDTO.getOrigenFondos())) {
+            cuenta = cuentasRepository.findById(pagoDTO.getCuentaAhorrosId())
+                    .orElseThrow(() -> new IllegalArgumentException("Error: Cuenta de ahorros no encontrada."));
 
-        // BLINDAJE DE PROPIEDAD: Si el rol es SOCIO, validar que la cuenta de origen le pertenezca
-        if ("SOCIO".equals(authRol) && !cuenta.getSocio().getIdentificacion().equals(authUsername)) {
-            throw new SecurityException("Error de Seguridad: Acceso denegado. La cuenta de origen del pago no pertenece al socio autenticado.");
+            if ("SOCIO".equals(authRol) && !cuenta.getSocio().getIdentificacion().equals(authUsername)) {
+                throw new SecurityException("Error de Seguridad: Acceso denegado. La cuenta de origen del pago no pertenece al socio autenticado.");
+            }
+            if (!cuenta.getEmpresaId().equals(tenantId)) {
+                throw new IllegalArgumentException("Error de Seguridad: La cuenta no pertenece a esta institucion.");
+            }
+        } else if ("EFECTIVO".equals(pagoDTO.getOrigenFondos())) {
+            if (cajaActiva == null) {
+                throw new SecurityException("Error: Debe tener una caja aperturada para recibir pagos en efectivo.");
+            }
+        } else {
+            throw new IllegalArgumentException("Error: Origen de fondos inválido.");
         }
 
-        if (!cuenta.getEmpresaId().equals(tenantId)) {
-            throw new IllegalArgumentException("Error de Seguridad: La cuenta no pertenece a esta institucion.");
-        }
-
-        return ejecutarPagoCore(credito, cuenta, pagoDTO.getMonto(), canalTransaccion, cajeroId, ipUsuario, dispositivo);
+        return ejecutarPagoCore(credito, cuenta, cajaActiva, pagoDTO.getOrigenFondos(), pagoDTO.getMonto(), canalTransaccion, cajeroId, ipUsuario, dispositivo);
     }
 
     @Transactional(isolation = Isolation.SERIALIZABLE, rollbackFor = Exception.class)
-    public Credito ejecutarPagoCore(Credito credito, CuentasAhorros cuenta, BigDecimal monto, String canalTransaccion, Integer cajeroId, String ipUsuario, String dispositivo) {
+    public Credito ejecutarPagoCore(Credito credito, CuentasAhorros cuenta, CajaDiaria caja, String origenFondos, BigDecimal monto, String canalTransaccion, Integer cajeroId, String ipUsuario, String dispositivo) {
         Integer tenantId = TenantContext.getCurrentTenant();
 
         // 3. Cargar tabla de amortizacion del credito
@@ -416,16 +427,22 @@ public class CreditoService {
             montoAPagar = totalDeuda;
         }
 
-        // 5. Validar fondos en cuenta de ahorros
-        BigDecimal saldoAnterior = cuenta.getSaldo().setScale(2, RoundingMode.HALF_UP);
-        if (saldoAnterior.compareTo(montoAPagar) < 0) {
-            throw new IllegalStateException("Error Financiero: Fondos insuficientes en la cuenta de ahorros del socio. Saldo disponible: $" + saldoAnterior);
+        // 5. Validar origen de fondos y saldo
+        BigDecimal saldoAnterior = BigDecimal.ZERO;
+        BigDecimal saldoResultante = BigDecimal.ZERO;
+
+        if ("CUENTA".equals(origenFondos)) {
+            saldoAnterior = cuenta.getSaldo().setScale(2, RoundingMode.HALF_UP);
+            if (saldoAnterior.compareTo(montoAPagar) < 0) {
+                throw new IllegalStateException("Error Financiero: Fondos insuficientes en la cuenta de ahorros del socio. Saldo disponible: $" + saldoAnterior);
+            }
         }
 
         // 6. Aplicar el pago en cascada sobre las cuotas pendientes
         BigDecimal remanente = montoAPagar;
         BigDecimal totalCapitalPagado = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         BigDecimal totalInteresPagado = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalMoraPagada = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
         for (CuotasAmortizacion cuota : cuotas) {
             if (remanente.compareTo(BigDecimal.ZERO) <= 0) {
@@ -441,7 +458,7 @@ public class CreditoService {
                 BigDecimal pagoMora = remanente.min(moraPendiente).setScale(2, RoundingMode.HALF_UP);
                 cuota.setMontoMoraPagado(cuota.getMontoMoraPagado().add(pagoMora).setScale(2, RoundingMode.HALF_UP));
                 remanente = remanente.subtract(pagoMora).setScale(2, RoundingMode.HALF_UP);
-                totalInteresPagado = totalInteresPagado.add(pagoMora).setScale(2, RoundingMode.HALF_UP);
+                totalMoraPagada = totalMoraPagada.add(pagoMora).setScale(2, RoundingMode.HALF_UP);
             }
 
             // B. Cobrar Interes Ordinario Proyectado
@@ -465,8 +482,9 @@ public class CreditoService {
             // Verificar si la cuota quedo completamente liquidada
             boolean todoCapitalPagado = cuota.getCapitalPagado().compareTo(cuota.getCapitalProyectado()) >= 0;
             boolean todoInteresPagado = cuota.getInteresPagado().compareTo(cuota.getInteresProyectado()) >= 0;
+            boolean todaMoraPagada = cuota.getMontoMoraPagado().compareTo(cuota.getMontoMoraAcumulado()) >= 0;
 
-            if (todoCapitalPagado && todoInteresPagado) {
+            if (todoCapitalPagado && todoInteresPagado && todaMoraPagada) {
                 cuota.setEstado("PAGADA");
                 cuota.setFechaUltimoPago(LocalDateTime.now());
             } else if (cuota.getDiasAtraso() > 0) {
@@ -477,27 +495,48 @@ public class CreditoService {
             cuotasRepository.save(cuota);
         }
 
-        // 7. Mutar el saldo de la cuenta de ahorros
-        BigDecimal saldoResultante = saldoAnterior.subtract(montoAPagar).setScale(2, RoundingMode.HALF_UP);
-        cuenta.setSaldo(saldoResultante);
-        cuentasRepository.save(cuenta);
+        // 7. Mutar saldos y registrar en Ledger o Caja
+        TransaccionesLedger ledgerGuardado = null;
 
-        // 8. Crear registro inmutable en el Ledger
-        TransaccionesLedger ledger = new TransaccionesLedger();
-        ledger.setCuenta(cuenta);
-        ledger.setTipoTransaccion("DEBITO");
-        ledger.setMonto(montoAPagar);
-        ledger.setSaldoAnterior(saldoAnterior);
-        ledger.setSaldoResultante(saldoResultante);
-        ledger.setCanal(canalTransaccion);
-        ledger.setReferencia("REF-PAGO-" + System.currentTimeMillis());
-        ledger.setDescripcion("Pago de cuota de credito Contrato N: " + credito.getNumeroCredito());
-        ledger.setUsuarioAdminId(cajeroId);
-        ledger.setDireccionIp(ipUsuario);
-        ledger.setDispositivoInfo(dispositivo);
-        TransaccionesLedger ledgerGuardado = transaccionesLedgerRepository.save(ledger);
+        if ("CUENTA".equals(origenFondos)) {
+            saldoResultante = saldoAnterior.subtract(montoAPagar).setScale(2, RoundingMode.HALF_UP);
+            cuenta.setSaldo(saldoResultante);
+            cuentasRepository.save(cuenta);
 
-        // 9. Verificar si se cancelo la totalidad del credito
+            TransaccionesLedger ledger = new TransaccionesLedger();
+            ledger.setCuenta(cuenta);
+            ledger.setTipoTransaccion("DEBITO");
+            ledger.setMonto(montoAPagar);
+            ledger.setSaldoAnterior(saldoAnterior);
+            ledger.setSaldoResultante(saldoResultante);
+            ledger.setCanal(canalTransaccion);
+            ledger.setReferencia("REF-PAGO-" + System.currentTimeMillis());
+            ledger.setDescripcion("Pago de cuota de credito Contrato N: " + credito.getNumeroCredito());
+            ledger.setUsuarioAdminId(cajeroId);
+            ledger.setDireccionIp(ipUsuario);
+            ledger.setDispositivoInfo(dispositivo);
+            ledgerGuardado = transaccionesLedgerRepository.save(ledger);
+        } else if ("EFECTIVO".equals(origenFondos)) {
+            saldoAnterior = BigDecimal.ZERO;
+            saldoResultante = montoAPagar;
+            
+            // For accounting tracking in Ventanilla without altering savings account
+            TransaccionesLedger ledger = new TransaccionesLedger();
+            ledger.setCuenta(null); // No afecta ninguna cuenta de ahorros
+            ledger.setTipoTransaccion("CREDITO"); // CREDITO significa ingreso en la caja (ver CajaDiariaService.cerrarCaja)
+            ledger.setMonto(montoAPagar);
+            ledger.setSaldoAnterior(saldoAnterior);
+            ledger.setSaldoResultante(saldoResultante);
+            ledger.setCanal(canalTransaccion);
+            ledger.setReferencia("REF-PAGO-" + System.currentTimeMillis());
+            ledger.setDescripcion("Pago de cuota en efectivo Contrato N: " + credito.getNumeroCredito());
+            ledger.setUsuarioAdminId(cajeroId);
+            ledger.setDireccionIp(ipUsuario);
+            ledger.setDispositivoInfo(dispositivo);
+            ledgerGuardado = transaccionesLedgerRepository.save(ledger);
+        }
+
+        // 8. Verificar si se cancelo la totalidad del credito
         boolean creditoCancelado = true;
         for (CuotasAmortizacion cuota : cuotas) {
             if (!"PAGADA".equals(cuota.getEstado())) {
@@ -510,9 +549,8 @@ public class CreditoService {
             creditoRepository.save(credito);
         }
 
-        // 10. REINGENIERÍA CONTABLE: Generar Asiento Contable Cuadrado por Partida Doble
-        PlanCuentas cuentaAhorrosPc = planCuentasRepository.findByCodigoContableAndEmpresaId("2.1.01.05", tenantId)
-                .orElseThrow(() -> new IllegalStateException("Error de Configuracion: Cuenta contable 2.1.01.05 no parametrizada."));
+        // 9. REINGENIERÍA CONTABLE: Generar Asiento Contable Cuadrado por Partida Doble
+        Empresa empresa = empresaService.obtenerPorId(tenantId);
 
         // Estructurar Cabecera del Asiento
         AsientosCabecera cabecera = new AsientosCabecera();
@@ -522,17 +560,31 @@ public class CreditoService {
 
         List<AsientosDetalle> detalles = new ArrayList<>();
 
-        // Apunte 1: Al DEBITO (Debe) - Disminuye el pasivo de cuentas de ahorros (salida de fondos)
-        AsientosDetalle debitoAhorros = new AsientosDetalle();
-        debitoAhorros.setPlanCuentas(cuentaAhorrosPc);
-        debitoAhorros.setTipoAsiento("DEBITO");
-        debitoAhorros.setMonto(montoAPagar);
-        detalles.add(debitoAhorros);
+        AsientosDetalle debitoOrigen = new AsientosDetalle();
+        if ("CUENTA".equals(origenFondos)) {
+            if (cuenta.getProductoAhorro() == null) {
+                throw new IllegalStateException("Error de Configuración: La cuenta de ahorros no tiene un producto de ahorro asociado.");
+            }
+            PlanCuentas cuentaAhorrosPc = cuenta.getProductoAhorro().getCuentaContablePasivo();
+            if (cuentaAhorrosPc == null) {
+                throw new IllegalStateException("Error de Configuracion: Cuenta contable pasivo no parametrizada en el producto de ahorro.");
+            }
+            debitoOrigen.setPlanCuentas(cuentaAhorrosPc);
+        } else {
+            PlanCuentas cuentaCajaPc = empresa.getCuentaContableCaja();
+            if (cuentaCajaPc == null) {
+                throw new IllegalStateException("Error de Configuracion: Cuenta contable de caja no parametrizada.");
+            }
+            debitoOrigen.setPlanCuentas(cuentaCajaPc);
+        }
+        debitoOrigen.setTipoAsiento("DEBITO");
+        debitoOrigen.setMonto(montoAPagar);
+        detalles.add(debitoOrigen);
 
         // Apunte 2: Al CREDITO (Haber) - Disminuye el activo de Cartera de creditos (capital amortizado)
         if (totalCapitalPagado.compareTo(BigDecimal.ZERO) > 0) {
-            PlanCuentas cuentaCarteraPc = planCuentasRepository.findByCodigoContableAndEmpresaId("1.4.01", tenantId)
-                    .orElseThrow(() -> new IllegalStateException("Error de Configuracion: Cuenta contable 1.4.01 no parametrizada."));
+            PlanCuentas cuentaCarteraPc = empresa.getCuentaContableCartera();
+            if (cuentaCarteraPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Cartera no parametrizada en Empresa.");
 
             AsientosDetalle creditoCartera = new AsientosDetalle();
             creditoCartera.setPlanCuentas(cuentaCarteraPc);
@@ -543,14 +595,26 @@ public class CreditoService {
 
         // Apunte 3: Al CREDITO (Haber) - Aumenta el ingreso por intereses de cartera (interes cobrado)
         if (totalInteresPagado.compareTo(BigDecimal.ZERO) > 0) {
-            PlanCuentas cuentaIngresosPc = planCuentasRepository.findByCodigoContableAndEmpresaId("5.1.01.05", tenantId)
-                    .orElseThrow(() -> new IllegalStateException("Error de Configuracion: Cuenta contable 5.1.01.05 no parametrizada."));
+            PlanCuentas cuentaIngresosPc = empresa.getCuentaContableIngresosIntereses();
+            if (cuentaIngresosPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Ingresos Intereses no parametrizada en Empresa.");
 
             AsientosDetalle creditoIngresos = new AsientosDetalle();
             creditoIngresos.setPlanCuentas(cuentaIngresosPc);
             creditoIngresos.setTipoAsiento("CREDITO");
             creditoIngresos.setMonto(totalInteresPagado);
             detalles.add(creditoIngresos);
+        }
+
+        // Apunte 4: Al CREDITO (Haber) - Aumenta el ingreso por mora (si existe)
+        if (totalMoraPagada.compareTo(BigDecimal.ZERO) > 0) {
+            PlanCuentas cuentaMoraPc = empresa.getCuentaContableMora();
+            if (cuentaMoraPc == null) throw new IllegalStateException("Error de Configuracion: Cuenta contable Mora no parametrizada en Empresa.");
+
+            AsientosDetalle creditoMora = new AsientosDetalle();
+            creditoMora.setPlanCuentas(cuentaMoraPc);
+            creditoMora.setTipoAsiento("CREDITO");
+            creditoMora.setMonto(totalMoraPagada);
+            detalles.add(creditoMora);
         }
 
         // Registrar y validar contabilidad cuadrada por software
@@ -618,6 +682,8 @@ public class CreditoService {
             ejecutarPagoCore(
                     credito,
                     cuentaVista,
+                    null,
+                    "CUENTA",
                     montoCuota,
                     "DEBITO_AUTOMATICO",
                     null,

@@ -19,7 +19,7 @@ public class TransaccionesLedger extends BaseEntity {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cuenta_id", nullable = false)
+    @JoinColumn(name = "cuenta_id", nullable = true)
     private CuentasAhorros cuenta;
 
     @Column(name = "tipo_transaccion", nullable = false, length = 10)
