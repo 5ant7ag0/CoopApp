@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import com.cooperativa.core.config.TenantInterceptor;
 
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
@@ -30,12 +31,16 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .allowedOrigins("*")
                 .allowedMethods("GET", "OPTIONS")
                 .allowedHeaders("*");
+        registry.addMapping("/api/v1/uploads/**")
+                .allowedOrigins("*")
+                .allowedMethods("GET", "OPTIONS")
+                .allowedHeaders("*");
     }
 
     @Override
     public void addResourceHandlers(org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry registry) {
-        String uploadPath = System.getProperty("user.dir") + "/uploads/";
-        registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:" + uploadPath);
+        String absolutePath = "/Users/santiago/Developer/Java/SistemaFinanciero/CoopApp/CoopApp/uploads/";
+        registry.addResourceHandler("/uploads/**", "/api/v1/uploads/**")
+                .addResourceLocations("file:" + absolutePath);
     }
 }
