@@ -34,7 +34,8 @@ public class SocioController {
         try {
             return ResponseEntity.ok(socioService.obtenerTodos());
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(e.getMessage() + " | Cause: " + (e.getCause() != null ? e.getCause().getMessage() : "null"));
         }
     }
 

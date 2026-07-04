@@ -6,6 +6,7 @@ import com.cooperativa.core.model.Socio;
 import com.cooperativa.core.repository.SocioRepository;
 import com.cooperativa.core.repository.OtpVerificacionRepository;
 import com.cooperativa.core.repository.TokensRecuperacionRepository;
+import com.cooperativa.core.repository.CreditoRepository;
 import com.cooperativa.core.model.TokensRecuperacion;
 import com.cooperativa.core.model.LogsAuditoria;
 import com.cooperativa.core.model.UsuariosAdmin;
@@ -41,6 +42,9 @@ public class SocioService {
 
     @Autowired
     private LogsAuditoriaService logsAuditoriaService;
+
+    @Autowired
+    private CreditoRepository creditoRepository;
 
     // CREAR UN NUEVO SOCIO
     @Transactional(rollbackFor = Exception.class)
@@ -153,7 +157,32 @@ public class SocioService {
         if (tenantId == null) {
             throw new IllegalStateException("Error: No se puede obtener datos sin un X-Tenant-ID definido.");
         }
-        return socioRepository.findByEmpresaId(tenantId);
+        List<Socio> socios = socioRepository.findByEmpresaId(tenantId);
+        
+        List<Object[]> resumenRiesgo = creditoRepository.findResumenRiesgoSocios(tenantId);
+        Map<Integer, String> riesgoMap = new java.util.HashMap<>();
+        
+        for (Object[] row : resumenRiesgo) {
+            Integer socioId = row[0] != null ? ((Number) row[0]).intValue() : null;
+            int activos = row[1] != null ? ((Number) row[1]).intValue() : 0;
+            int mora = row[2] != null ? ((Number) row[2]).intValue() : 0;
+            
+            if (socioId == null) continue;
+            
+            if (mora > 0) {
+                riesgoMap.put(socioId, "EN_MORA");
+            } else if (activos > 0) {
+                riesgoMap.put(socioId, "AL_DIA");
+            } else {
+                riesgoMap.put(socioId, "SIN_CREDITO");
+            }
+        }
+        
+        for (Socio s : socios) {
+            s.setEstadoRiesgo(riesgoMap.getOrDefault(s.getId(), "SIN_CREDITO"));
+        }
+        
+        return socios;
     }
 
     // LEER UN SOCIO POR ID

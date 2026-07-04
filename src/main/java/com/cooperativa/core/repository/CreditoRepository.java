@@ -17,4 +17,12 @@ public interface CreditoRepository extends JpaRepository<Credito, Integer> {
 
     // Busca un contrato específico validando el Tenant ID activo
     Optional<Credito> findByNumeroCreditoAndEmpresaId(String numeroCredito, Integer empresaId);
+
+    // Obtiene el consolidado de riesgo crediticio para pintar indicadores (Socio ID -> [Total Creditos Activos, Cuotas Vencidas])
+    @org.springframework.data.jpa.repository.Query("SELECT c.socio.id, COUNT(c.id), SUM(CASE WHEN cu.estado = 'EN_MORA' THEN 1 ELSE 0 END) " +
+           "FROM Credito c " +
+           "LEFT JOIN c.cuotas cu " +
+           "WHERE c.socio.empresaId = :empresaId AND c.estado = 'DESEMBOLSADO' " +
+           "GROUP BY c.socio.id")
+    List<Object[]> findResumenRiesgoSocios(@org.springframework.data.repository.query.Param("empresaId") Integer empresaId);
 }

@@ -91,4 +91,7 @@ public class Socio extends BaseEntity {
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Transient
+    private String estadoRiesgo = "SIN_CREDITO";
 }
