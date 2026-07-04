@@ -58,7 +58,7 @@ public class SocioController {
     }
 
     @PostMapping("/{id}/avatar")
-    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "SOCIO"})
     public ResponseEntity<?> subirAvatar(@PathVariable Integer id, @RequestParam("file") MultipartFile file) {
         try {
             String avatarUrl = socioService.guardarAvatar(id, file);
@@ -120,7 +120,7 @@ public class SocioController {
     }
 
     @DeleteMapping("/{id}/avatar")
-    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "SOCIO"})
     public ResponseEntity<?> eliminarAvatar(@PathVariable Integer id) {
         try {
             socioService.eliminarAvatar(id);
