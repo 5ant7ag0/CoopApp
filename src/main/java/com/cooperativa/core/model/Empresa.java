@@ -1,6 +1,7 @@
 package com.cooperativa.core.model;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.Setter;
 import java.time.LocalDateTime;
@@ -17,21 +18,29 @@ public class Empresa {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
+    @NotBlank(message = "El RUC es obligatorio")
+    @Pattern(regexp = "^[0-9]{13}$", message = "El RUC debe tener 13 dígitos numéricos")
     @Column(nullable = false, unique = true, length = 13)
     private String ruc;
 
+    @NotBlank(message = "La razón social es obligatoria")
     @Column(name = "razon_social", nullable = false, length = 150)
     private String razonSocial;
 
+    @NotBlank(message = "El nombre comercial es obligatorio")
     @Column(name = "nombre_comercial", nullable = false, length = 150)
     private String nombreComercial;
 
+    @NotBlank(message = "El código SEPS es obligatorio")
     @Column(name = "codigo_seps", nullable = false, unique = true, length = 50)
     private String codigoSeps;
 
+    @NotBlank(message = "El representante legal es obligatorio")
     @Column(name = "representante_legal", nullable = false, length = 100)
     private String representanteLegal;
 
+    @NotBlank(message = "La cédula del representante es obligatoria")
+    @Pattern(regexp = "^[0-9]{10}$", message = "La cédula debe tener 10 dígitos numéricos")
     @Column(name = "cedula_representante", nullable = false, length = 10)
     private String cedulaRepresentante;
 
@@ -41,8 +50,16 @@ public class Empresa {
     @Column(length = 3)
     private String moneda = "USD";
 
+    @Enumerated(EnumType.STRING)
     @Column(length = 20)
-    private String estado = "ACTIVO";
+    private TenantEstado estado = TenantEstado.ACTIVO;
+
+    // --- NUEVOS CAMPOS DE LIMITES (SAAS) ---
+    @Column(name = "limite_usuarios_admin")
+    private Integer limiteUsuariosAdmin;
+
+    @Column(name = "limite_socios")
+    private Integer limiteSocios;
 
     // --- NUEVOS CAMPOS INSTITUCIONALES LEGALES ECUADOR ---
     @Column(length = 255)
@@ -60,8 +77,14 @@ public class Empresa {
     @Column(name = "resolucion_seps", length = 100)
     private String resolucionSeps;
 
+    @NotBlank(message = "El correo institucional es obligatorio")
+    @Email(message = "El formato del correo institucional es inválido")
     @Column(name = "correo_institucional", length = 100)
     private String correoInstitucional;
+
+    @Email(message = "El formato del correo del gerente es inválido")
+    @Column(name = "correo_gerente", length = 100)
+    private String correoGerente;
 
     @Column(length = 100)
     private String provincia;

@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import com.cooperativa.core.model.TokensRecuperacion;
 import com.cooperativa.core.model.LogsAuditoria;
 import com.cooperativa.core.repository.TokensRecuperacionRepository;
@@ -397,7 +398,7 @@ public class AuthService {
         });
 
         // 2. Generar Token
-        String tokenRaw = java.util.UUID.randomUUID().toString();
+        String tokenRaw = UUID.randomUUID().toString();
         String tokenHash = hashSha256(tokenRaw);
 
         // 3. Guardar en Base de Datos
@@ -470,7 +471,7 @@ public class AuthService {
         }
 
         if (identificacion == null || identificacion.trim().isEmpty()) {
-            throw new IllegalArgumentException("La identificacion del socio es requerida.");
+            throw new IllegalArgumentException("La identificacion o usuario es requerido.");
         }
         if (token == null || token.trim().isEmpty()) {
             throw new IllegalArgumentException("El token o codigo OTP es requerido.");
@@ -479,80 +480,181 @@ public class AuthService {
             throw new IllegalArgumentException("La nueva contrasena es requerida.");
         }
 
-        // 1. Buscar socio
-        Socio socio = socioRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId)
-                .orElseThrow(() -> new IllegalArgumentException("Socio no encontrado con la identificacion provista."));
-
-        // 2. Buscar ultimo token de recuperacion no utilizado y no expirado para este socio
         LocalDateTime ahora = LocalDateTime.now();
-        TokensRecuperacion tokenRec = tokensRecuperacionRepository
-                .findFirstBySocioIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(socio.getId(), ahora)
-                .orElseThrow(() -> new IllegalArgumentException("Token o codigo OTP invalido o expirado."));
 
-        // 3. Validar intentos fallidos previos
-        if (tokenRec.getIntentosFallidos() >= 3) {
-            tokenRec.setUtilizado(true);
-            tokensRecuperacionRepository.save(tokenRec);
-            throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
-        }
+        // Intentar buscar como Socio primero
+        Optional<Socio> socioOpt = socioRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId);
 
-        // 4. Comparar hashes
-        String hashIngresado = hashSha256(token);
-        if (!tokenRec.getTokenHash().equals(hashIngresado)) {
-            // Incrementar intentos fallidos
-            tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
+        if (socioOpt.isPresent()) {
+            Socio socio = socioOpt.get();
+            TokensRecuperacion tokenRec = tokensRecuperacionRepository
+                    .findFirstBySocioIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(socio.getId(), ahora)
+                    .orElseThrow(() -> new IllegalArgumentException("Token o codigo OTP invalido o expirado."));
+
             if (tokenRec.getIntentosFallidos() >= 3) {
                 tokenRec.setUtilizado(true);
+                tokensRecuperacionRepository.save(tokenRec);
+                throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
             }
+
+            String hashIngresado = hashSha256(token);
+            if (!tokenRec.getTokenHash().equals(hashIngresado)) {
+                tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
+                if (tokenRec.getIntentosFallidos() >= 3) {
+                    tokenRec.setUtilizado(true);
+                }
+                tokensRecuperacionRepository.save(tokenRec);
+
+                LogsAuditoria auditLog = new LogsAuditoria();
+                auditLog.setSocio(socio);
+                auditLog.setAccion("VALIDAR_RECUPERACION_FALLIDO");
+                auditLog.setTablaAfectada("tokens_recuperacion");
+                auditLog.setRegistroId(tokenRec.getId());
+                auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+                auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
+                auditLog.setValorAnterior(Map.of("intentosFallidos", tokenRec.getIntentosFallidos() - 1));
+                auditLog.setValorNuevo(Map.of("intentosFallidos", tokenRec.getIntentosFallidos()));
+                logsAuditoriaService.registrarLog(auditLog);
+
+                if (tokenRec.getIntentosFallidos() >= 3) {
+                    throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
+                } else {
+                    throw new IllegalArgumentException("Token o codigo OTP invalido.");
+                }
+            }
+
+            SociosCredenciales creds = credencialesRepository.findBySocioId(socio.getId())
+                    .orElseGet(() -> {
+                        SociosCredenciales newCreds = new SociosCredenciales();
+                        newCreds.setSocio(socio);
+                        return newCreds;
+                    });
+
+            creds.setPasswordHash(encryptionService.hashPassword(passwordNueva));
+            creds.setEstadoAcceso("ACTIVO");
+            creds.setIntentosFallidos(0);
+            creds.setBloqueadoHasta(null);
+            credencialesRepository.save(creds);
+
+            tokenRec.setUtilizado(true);
             tokensRecuperacionRepository.save(tokenRec);
 
-            // Log de auditoria para intento fallido
             LogsAuditoria auditLog = new LogsAuditoria();
             auditLog.setSocio(socio);
-            auditLog.setAccion("VALIDAR_RECUPERACION_FALLIDO");
-            auditLog.setTablaAfectada("tokens_recuperacion");
-            auditLog.setRegistroId(tokenRec.getId());
+            auditLog.setAccion("RESTABLECER_CLAVE_EXITOSO");
+            auditLog.setTablaAfectada("socios_credenciales");
+            auditLog.setRegistroId(creds.getId());
             auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
             auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
-            auditLog.setValorAnterior(Map.of("intentosFallidos", tokenRec.getIntentosFallidos() - 1));
-            auditLog.setValorNuevo(Map.of("intentosFallidos", tokenRec.getIntentosFallidos()));
+            auditLog.setValorAnterior(Map.of("estadoAcceso", "BLOQUEADA"));
+            auditLog.setValorNuevo(Map.of("estadoAcceso", "ACTIVO"));
             logsAuditoriaService.registrarLog(auditLog);
 
+        } else {
+            // Intentar buscar como UsuarioAdmin (Gerente u otro)
+            UsuariosAdmin admin = adminRepository.findByUsernameAndEmpresaId(identificacion, tenantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado con la identificacion o nombre de usuario provisto."));
+
+            TokensRecuperacion tokenRec = tokensRecuperacionRepository
+                    .findFirstByUsuarioAdminIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(admin.getId(), ahora)
+                    .orElseThrow(() -> new IllegalArgumentException("Token o enlace de restablecimiento invalido o expirado."));
+
             if (tokenRec.getIntentosFallidos() >= 3) {
-                throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
-            } else {
-                throw new IllegalArgumentException("Token o codigo OTP invalido.");
+                tokenRec.setUtilizado(true);
+                tokensRecuperacionRepository.save(tokenRec);
+                throw new IllegalArgumentException("El enlace de restablecimiento ha sido invalidado por exceso de intentos fallidos.");
             }
+
+            String hashIngresado = hashSha256(token);
+            if (!tokenRec.getTokenHash().equals(hashIngresado)) {
+                tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
+                if (tokenRec.getIntentosFallidos() >= 3) {
+                    tokenRec.setUtilizado(true);
+                }
+                tokensRecuperacionRepository.save(tokenRec);
+
+                LogsAuditoria auditLog = new LogsAuditoria();
+                auditLog.setUsuarioAdminId(admin.getId());
+                auditLog.setAccion("VALIDAR_RECUPERACION_ADMIN_FALLIDO");
+                auditLog.setTablaAfectada("tokens_recuperacion");
+                auditLog.setRegistroId(tokenRec.getId());
+                auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+                auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
+                auditLog.setValorAnterior(Map.of("intentosFallidos", tokenRec.getIntentosFallidos() - 1));
+                auditLog.setValorNuevo(Map.of("intentosFallidos", tokenRec.getIntentosFallidos()));
+                logsAuditoriaService.registrarLog(auditLog);
+
+                if (tokenRec.getIntentosFallidos() >= 3) {
+                    throw new IllegalArgumentException("El enlace de restablecimiento ha sido invalidado por exceso de intentos fallidos.");
+                } else {
+                    throw new IllegalArgumentException("Enlace o token invalido.");
+                }
+            }
+
+            admin.setPasswordHash(encryptionService.hashPassword(passwordNueva));
+            admin.setCambiarPasswordProximoInicio(false);
+            adminRepository.save(admin);
+
+            tokenRec.setUtilizado(true);
+            tokensRecuperacionRepository.save(tokenRec);
+
+            LogsAuditoria auditLog = new LogsAuditoria();
+            auditLog.setUsuarioAdminId(admin.getId());
+            auditLog.setAccion("RESTABLECER_CLAVE_ADMIN_EXITOSO");
+            auditLog.setTablaAfectada("usuarios_admin");
+            auditLog.setRegistroId(admin.getId());
+            auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+            auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
+            auditLog.setValorAnterior(Map.of("cuenta", admin.getUsername()));
+            auditLog.setValorNuevo(Map.of("restablecimiento", "exitoso"));
+            logsAuditoriaService.registrarLog(auditLog);
         }
+    }
 
-        // 5. Si es correcto, actualizar credenciales del socio (crear si no existen)
-        SociosCredenciales creds = credencialesRepository.findBySocioId(socio.getId())
-                .orElseGet(() -> {
-                    SociosCredenciales newCreds = new SociosCredenciales();
-                    newCreds.setSocio(socio);
-                    return newCreds;
-                });
+    /**
+     * Flujo Asistido (SaaS Manager): Genera enlace de restablecimiento seguro para el Gerente General.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public String enviarEnlaceRestablecimientoAdmin(Integer tenantId, String ip, String userAgent) {
+        // Find Gerente General
+        UsuariosAdmin gerente = adminRepository.findGerenteGeneralRaw(tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("No se encontró al Gerente General para este tenant."));
 
-        creds.setPasswordHash(encryptionService.hashPassword(passwordNueva));
-        creds.setEstadoAcceso("ACTIVO");
-        creds.setIntentosFallidos(0);
-        creds.setBloqueadoHasta(null);
-        credencialesRepository.save(creds);
+        // Invalidar contraseña actual del gerente inmediatamente por seguridad
+        gerente.setPasswordHash(UUID.randomUUID().toString());
+        adminRepository.save(gerente);
 
-        // 6. Marcar token como utilizado
-        tokenRec.setUtilizado(true);
+        // Generate Token
+        String tokenRaw = UUID.randomUUID().toString();
+        String tokenHash = hashSha256(tokenRaw);
+
+        // Guardar en Base de Datos
+        TokensRecuperacion tokenRec = new TokensRecuperacion();
+        tokenRec.setUsuarioAdmin(gerente);
+        tokenRec.setTokenHash(tokenHash);
+        tokenRec.setCanal("CORREO");
+        tokenRec.setFechaExpiracion(LocalDateTime.now().plusHours(1)); // Damos 1 hora para el Admin
+        tokenRec.setUtilizado(false);
+        tokenRec.setIntentosFallidos(0);
         tokensRecuperacionRepository.save(tokenRec);
 
-        // 7. Registro de Auditoria
+        // Enviar notificación simulando un envío seguro
+        String link = "http://localhost:5173/recuperar-clave?token=" + tokenRaw + "&identificacion=" + gerente.getUsername();
+        
+        notificacionService.enviarRecuperacionCorreoAdmin(gerente, link);
+
+        // Registro de Auditoria
         LogsAuditoria auditLog = new LogsAuditoria();
-        auditLog.setSocio(socio);
-        auditLog.setAccion("RESTABLECER_CLAVE_EXITOSO");
-        auditLog.setTablaAfectada("socios_credenciales");
-        auditLog.setRegistroId(creds.getId());
+        auditLog.setUsuarioAdminId(gerente.getId());
+        auditLog.setAccion("ENVIAR_ENLACE_RESTABLECIMIENTO_ADMIN_SaaS");
+        auditLog.setTablaAfectada("tokens_recuperacion");
+        auditLog.setRegistroId(tokenRec.getId());
         auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
-        auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
-        auditLog.setValorAnterior(Map.of("estadoAcceso", "BLOQUEADA"));
-        auditLog.setValorNuevo(Map.of("estadoAcceso", "ACTIVO"));
+        auditLog.setDispositivoInfo(userAgent != null ? userAgent : "SaaS Manager");
+        auditLog.setValorAnterior(Map.of("solicitud", "saas_manager"));
+        auditLog.setValorNuevo(Map.of("tokenHash", tokenHash, "expira", tokenRec.getFechaExpiracion().toString()));
         logsAuditoriaService.registrarLog(auditLog);
+
+        return enmascararCorreo(gerente.getCorreo());
     }
 }

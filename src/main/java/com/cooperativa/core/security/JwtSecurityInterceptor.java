@@ -20,6 +20,9 @@ public class JwtSecurityInterceptor implements HandlerInterceptor {
     @Autowired
     private JwtUtil jwtUtil;
 
+    @Autowired
+    private TenantStateCache tenantStateCache;
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         
@@ -99,6 +102,13 @@ public class JwtSecurityInterceptor implements HandlerInterceptor {
                 // Alerta de seguridad: Intento de acceso cruzado entre tenants
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.getWriter().write("Error de Aislamiento: El inquilino del token no coincide con el X-Tenant-ID solicitado.");
+                return false;
+            }
+
+            // 6. Kill Switch: Verificar si el tenant está suspendido en caché
+            if (tenantStateCache.isSuspended(tokenTenantId)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.getWriter().write("Error: La cooperativa se encuentra suspendida. Contacte con el soporte técnico.");
                 return false;
             }
 

@@ -18,8 +18,12 @@ public class TokensRecuperacion extends BaseEntity {
     private Integer id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "socio_id", nullable = false)
+    @JoinColumn(name = "socio_id", nullable = true)
     private Socio socio;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "usuario_admin_id", nullable = true)
+    private UsuariosAdmin usuarioAdmin;
 
     @Column(name = "token_hash", nullable = false, length = 64)
     private String tokenHash;

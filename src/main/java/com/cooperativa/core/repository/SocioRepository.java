@@ -17,4 +17,7 @@ public interface SocioRepository extends JpaRepository<Socio, Integer> {
 
     // Verifica si ya existe un socio registrado con esa identificación en la misma cooperativa
     boolean existsByIdentificacionAndEmpresaId(String identificacion, Integer empresaId);
+
+    @org.springframework.data.jpa.repository.Query(value = "SELECT COUNT(*) FROM socios WHERE empresa_id = :empresaId", nativeQuery = true)
+    long countByEmpresaId(@org.springframework.data.repository.query.Param("empresaId") Integer empresaId);
 }

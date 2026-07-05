@@ -17,4 +17,8 @@ public interface TokensRecuperacionRepository extends JpaRepository<TokensRecupe
     // Buscar el último token activo de recuperación para un socio con bloqueo de escritura pesimista
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<TokensRecuperacion> findFirstBySocioIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(Integer socioId, LocalDateTime ahora);
+
+    // Buscar el último token activo de recuperación para un administrador con bloqueo de escritura pesimista
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<TokensRecuperacion> findFirstByUsuarioAdminIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(Integer usuarioAdminId, LocalDateTime ahora);
 }

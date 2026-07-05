@@ -1,6 +1,7 @@
 package com.cooperativa.core.service;
 
 import com.cooperativa.core.model.Socio;
+import com.cooperativa.core.model.UsuariosAdmin;
 import com.cooperativa.core.util.EmailTemplateBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,6 +90,37 @@ public class NotificacionService {
         } catch (Exception e) {
             log.error("Excepción al intentar enviar correo vía Resend a {}", to, e);
         }
+    }
+
+    public void enviarRecuperacionCorreoAdmin(UsuariosAdmin admin, String link) {
+        String titulo = "Restablecimiento de Contraseña (Administrador)";
+        String mensaje = "Estimado/a " + admin.getNombresCompletos() + ", hemos recibido una solicitud para restablecer su contraseña de administrador.";
+        
+        String cuerpo = templateBuilder.buildLinkButton(link, "Crear Nueva Contraseña");
+        
+        String notaPie = "Este enlace es de uso único y expirará en 1 hora. Si usted no solicitó esto, por favor ignore este correo.";
+        String htmlBody = templateBuilder.buildCorporateEmail(titulo, mensaje, cuerpo, notaPie);
+
+        enviarCorreoResend(admin.getCorreo(), "Restablecimiento de Contraseña Administrativa - CoopApp", htmlBody);
+    }
+
+    /**
+     * Envía las credenciales de acceso inicial a los dueños de nuevos Tenants (Cooperativas)
+     */
+    public void enviarCredencialesSaaS(String to, String razonSocial, String usuario, String password) {
+        String titulo = "¡Bienvenido al Core Bancario SaaS!";
+        String mensaje = "Estimado equipo de " + razonSocial + ", su instancia ha sido creada exitosamente. A continuación sus credenciales de acceso como Administrador Principal:";
+        
+        String cuerpo = "<div style=\"background-color:#f8fafc; padding:15px; border-radius:10px; text-align:center;\">"
+                      + "<p style=\"margin:0; font-size:14px; color:#475569;\"><strong>Usuario:</strong> " + usuario + "</p>"
+                      + "<p style=\"margin:8px 0 0; font-size:14px; color:#475569;\"><strong>Contraseña Temporal:</strong> " + password + "</p>"
+                      + "</div><br/>"
+                      + templateBuilder.buildLinkButton("http://localhost:5173/login", "Acceder al Panel de Control");
+        
+        String notaPie = "Le recomendamos encarecidamente cambiar su contraseña al iniciar sesión por primera vez.";
+        String htmlBody = templateBuilder.buildCorporateEmail(titulo, mensaje, cuerpo, notaPie);
+
+        enviarCorreoResend(to, "Credenciales de Acceso SaaS - " + razonSocial, htmlBody);
     }
 
     /**

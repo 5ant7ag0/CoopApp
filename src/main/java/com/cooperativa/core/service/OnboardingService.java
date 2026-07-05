@@ -32,6 +32,9 @@ public class OnboardingService {
     @Autowired
     private EncryptionService encryptionService;
 
+    @Autowired
+    private NotificacionService notificacionService;
+
     /**
      * Registra una nueva empresa, su administrador y su plan de cuentas de forma atomica.
      * Implementa la tecnica de conmutacion de tenant para evitar que @PrePersist de BaseEntity
@@ -79,6 +82,16 @@ public class OnboardingService {
             admin.setEstado("ACTIVO");
 
             usuarioAdminRepository.save(admin);
+
+            // Enviar correo con credenciales al correo institucional de la cooperativa
+            if (empresa.getCorreoInstitucional() != null && !empresa.getCorreoInstitucional().isEmpty()) {
+                notificacionService.enviarCredencialesSaaS(
+                    empresa.getCorreoInstitucional(), 
+                    empresa.getRazonSocial(), 
+                    admin.getUsername(), 
+                    plainPassword
+                );
+            }
 
             // 5. Inyectar el Plan de Cuentas base de 18 cuentas contables por defecto
             sembrarPlanCuentasDefecto(savedEmpresa.getId());

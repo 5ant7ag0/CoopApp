@@ -46,12 +46,28 @@ public class SocioService {
     @Autowired
     private CreditoRepository creditoRepository;
 
+    @Autowired
+    private com.cooperativa.core.repository.EmpresaRepository empresaRepository;
+
     // CREAR UN NUEVO SOCIO
     @Transactional(rollbackFor = Exception.class)
     public Socio crearSocio(SocioRequestDTO dto) {
         Integer tenantId = TenantContext.getCurrentTenant();
         if (tenantId == null) {
             throw new IllegalStateException("Error de Seguridad: No se puede guardar datos sin un X-Tenant-ID definido.");
+        }
+
+        // Validar límite de socios
+        com.cooperativa.core.model.Empresa empresa = empresaRepository.findById(tenantId)
+            .orElseThrow(() -> new IllegalStateException("Empresa no encontrada"));
+            
+        if (empresa.getLimiteSocios() != null) {
+            long currentCount = socioRepository.countByEmpresaId(tenantId);
+            if (currentCount >= empresa.getLimiteSocios()) {
+                throw new com.cooperativa.core.exception.ResourceLimitExceededException(
+                    "Error Comercial: Ha alcanzado el límite máximo de " + empresa.getLimiteSocios() + " socios para su plan actual."
+                );
+            }
         }
 
         // Regla: Evitar duplicados de cédula/RUC en la misma cooperativa

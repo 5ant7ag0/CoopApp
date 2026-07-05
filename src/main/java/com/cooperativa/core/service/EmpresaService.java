@@ -58,6 +58,7 @@ public class EmpresaService {
         compararYAsignarString("segmentoSeps", empresaExistente.getSegmentoSeps(), datosNuevos.getSegmentoSeps(), empresaExistente::setSegmentoSeps, valorAnterior, valorNuevo);
         compararYAsignarString("resolucionSeps", empresaExistente.getResolucionSeps(), datosNuevos.getResolucionSeps(), empresaExistente::setResolucionSeps, valorAnterior, valorNuevo);
         compararYAsignarString("correoInstitucional", empresaExistente.getCorreoInstitucional(), datosNuevos.getCorreoInstitucional(), empresaExistente::setCorreoInstitucional, valorAnterior, valorNuevo);
+        compararYAsignarString("correoGerente", empresaExistente.getCorreoGerente(), datosNuevos.getCorreoGerente(), empresaExistente::setCorreoGerente, valorAnterior, valorNuevo);
         compararYAsignarString("provincia", empresaExistente.getProvincia(), datosNuevos.getProvincia(), empresaExistente::setProvincia, valorAnterior, valorNuevo);
         compararYAsignarString("canton", empresaExistente.getCanton(), datosNuevos.getCanton(), empresaExistente::setCanton, valorAnterior, valorNuevo);
 
@@ -85,6 +86,15 @@ public class EmpresaService {
         actualizarCuentaContable("cuentaContableAportaciones", empresaExistente.getCuentaContableAportaciones(), datosNuevos.getCuentaContableAportaciones(), empresaExistente::setCuentaContableAportaciones, tenantId, valorAnterior, valorNuevo);
 
         Empresa guardada = empresaRepository.save(empresaExistente);
+
+        // Sincronizar el correo del Gerente General en usuarios_admin si cambió
+        if (valorNuevo.containsKey("correoGerente")) {
+            String nuevoCorreo = (String) valorNuevo.get("correoGerente");
+            usuarioAdminRepository.findGerenteGeneralRaw(tenantId).ifPresent(gerente -> {
+                gerente.setCorreo(nuevoCorreo);
+                usuarioAdminRepository.save(gerente);
+            });
+        }
 
         // Si hubo cambios, registramos auditoría
         if (!valorNuevo.isEmpty()) {
@@ -233,7 +243,7 @@ public class EmpresaService {
     @Transactional
     public void eliminarEmpresa(Integer id) {
         Empresa empresa = obtenerPorId(id);
-        empresa.setEstado("INACTIVO");
+        empresa.setEstado(com.cooperativa.core.model.TenantEstado.SUSPENDIDO);
         empresaRepository.save(empresa);
     }
 

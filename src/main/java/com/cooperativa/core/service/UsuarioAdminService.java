@@ -25,6 +25,9 @@ public class UsuarioAdminService {
     @Autowired
     private com.cooperativa.core.security.EncryptionService encryptionService;
 
+    @Autowired
+    private com.cooperativa.core.repository.EmpresaRepository empresaRepository;
+
     private boolean validarCedulaEcuatoriana(String ced) {
         if (ced == null || ced.length() != 10) return false;
         try {
@@ -51,6 +54,19 @@ public class UsuarioAdminService {
     @Transactional
     public UsuariosAdmin crearUsuario(UsuariosAdmin usuario) {
         Integer tenantId = TenantContext.getCurrentTenant();
+
+        // Validar límite de usuarios
+        com.cooperativa.core.model.Empresa empresa = empresaRepository.findById(tenantId)
+            .orElseThrow(() -> new IllegalStateException("Empresa no encontrada"));
+            
+        if (empresa.getLimiteUsuariosAdmin() != null) {
+            long currentCount = usuarioRepository.countByEmpresaId(tenantId);
+            if (currentCount >= empresa.getLimiteUsuariosAdmin()) {
+                throw new com.cooperativa.core.exception.ResourceLimitExceededException(
+                    "Error Comercial: Ha alcanzado el límite máximo de " + empresa.getLimiteUsuariosAdmin() + " usuarios administrativos para su plan actual."
+                );
+            }
+        }
 
         // Validar cédula ecuatoriana
         if (!validarCedulaEcuatoriana(usuario.getIdentificacion())) {
