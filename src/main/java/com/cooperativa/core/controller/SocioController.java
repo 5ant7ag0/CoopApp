@@ -2,6 +2,7 @@ package com.cooperativa.core.controller;
 
 import com.cooperativa.core.dto.SocioRequestDTO;
 import com.cooperativa.core.service.SocioService;
+import com.cooperativa.core.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,9 @@ public class SocioController {
 
     @Autowired
     private SocioService socioService;
+
+    @Autowired
+    private AuthService authService;
 
     @PostMapping
     @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
@@ -137,6 +141,21 @@ public class SocioController {
         try {
             socioService.eliminarLogico(id);
             return ResponseEntity.ok("Socio inactivado correctamente en el sistema.");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/{id}/enviar-restablecimiento")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
+    public ResponseEntity<?> enviarRestablecimiento(
+            @PathVariable Integer id,
+            jakarta.servlet.http.HttpServletRequest request) {
+        try {
+            String ip = request.getRemoteAddr();
+            String userAgent = request.getHeader("User-Agent");
+            String correoEnmascarado = authService.enviarEnlaceRestablecimiento(id, ip, userAgent);
+            return ResponseEntity.ok(java.util.Map.of("message", "Enlace enviado al correo " + correoEnmascarado + " del socio."));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

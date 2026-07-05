@@ -104,7 +104,7 @@ public class SocioService {
         tokensRecuperacionRepository.save(tokenRec);
 
         // Cuerpo HTML Corporativo de Bienvenida y Activacion de Banca Digital
-        String welcomeLink = "http://localhost:5173/establecer-password?token=" + tokenRaw + "&identificacion=" + socioCreado.getIdentificacion();
+        String welcomeLink = "http://localhost:5173/establecer-password-socio?token=" + tokenRaw + "&identificacion=" + socioCreado.getIdentificacion();
         String welcomeHtml = String.format(
             "<!DOCTYPE html><html><head><style>" +
             "body { font-family: Arial, sans-serif; background-color: #f8fafc; color: #1e293b; padding: 20px; }" +

@@ -294,7 +294,7 @@ public class AuthService {
      * y simula el envío a través del NotificacionService.
      */
     @Transactional(rollbackFor = Exception.class)
-    public void solicitarRecuperacion(String identificacion, String canal, String ip, String userAgent) {
+    public String solicitarRecuperacion(String identificacion, String canal, String ip, String userAgent) {
         Integer tenantId = TenantContext.getCurrentTenant();
         if (tenantId == null) {
             throw new IllegalStateException("Error de Seguridad: No se puede solicitar recuperacion sin especificar la institucion (X-Tenant-ID).");
@@ -317,9 +317,7 @@ public class AuthService {
 
         // 3. Generar Token/OTP
         String tokenRaw;
-        if ("CORREO".equals(canal)) {
-            tokenRaw = java.util.UUID.randomUUID().toString();
-        } else if ("SMS".equals(canal)) {
+        if ("CORREO".equals(canal) || "SMS".equals(canal)) {
             java.security.SecureRandom random = new java.security.SecureRandom();
             int otpNum = 100000 + random.nextInt(900000);
             tokenRaw = String.valueOf(otpNum);
@@ -363,6 +361,101 @@ public class AuthService {
             "expira", tokenRec.getFechaExpiracion().toString()
         ));
         logsAuditoriaService.registrarLog(auditLog);
+
+        return enmascararCorreo(socio.getCorreo());
+    }
+
+    private String enmascararCorreo(String correo) {
+        if (correo == null || !correo.contains("@")) return correo;
+        String[] parts = correo.split("@");
+        String name = parts[0];
+        String domain = parts[1];
+        if (name.length() <= 2) {
+            return name + "***@" + domain;
+        }
+        return name.substring(0, 2) + "***@" + domain;
+    }
+
+    /**
+     * Flujo Asistido (Backoffice): Genera enlace de restablecimiento e invalida credencial actual.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public String enviarEnlaceRestablecimiento(Integer socioId, String ip, String userAgent) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) {
+            throw new IllegalStateException("Error de Seguridad: No se puede generar enlace sin especificar la institucion.");
+        }
+
+        Socio socio = socioRepository.findById(socioId)
+                .filter(s -> s.getEmpresaId().equals(tenantId))
+                .orElseThrow(() -> new IllegalArgumentException("Socio no encontrado."));
+
+        // 1. Invalidar credenciales actuales si existen
+        credencialesRepository.findBySocioId(socio.getId()).ifPresent(creds -> {
+            creds.setEstadoAcceso("REQUIERE_CAMBIO");
+            credencialesRepository.save(creds);
+        });
+
+        // 2. Generar Token
+        String tokenRaw = java.util.UUID.randomUUID().toString();
+        String tokenHash = hashSha256(tokenRaw);
+
+        // 3. Guardar en Base de Datos
+        TokensRecuperacion tokenRec = new TokensRecuperacion();
+        tokenRec.setSocio(socio);
+        tokenRec.setTokenHash(tokenHash);
+        tokenRec.setCanal("CORREO");
+        tokenRec.setFechaExpiracion(LocalDateTime.now().plusMinutes(15));
+        tokenRec.setUtilizado(false);
+        tokenRec.setIntentosFallidos(0);
+        tokensRecuperacionRepository.save(tokenRec);
+
+        // 4. Enviar notificación
+        notificacionService.enviarRecuperacionCorreo(socio, tokenRaw);
+
+        // 5. Registro de Auditoria
+        LogsAuditoria auditLog = new LogsAuditoria();
+        auditLog.setSocio(socio);
+        auditLog.setAccion("ENVIAR_ENLACE_RESTABLECIMIENTO_ASISTIDO");
+        auditLog.setTablaAfectada("tokens_recuperacion");
+        auditLog.setRegistroId(tokenRec.getId());
+        auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
+        auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Backoffice");
+        auditLog.setValorAnterior(Map.of("solicitud", "asistida"));
+        auditLog.setValorNuevo(Map.of("tokenHash", tokenHash, "expira", tokenRec.getFechaExpiracion().toString()));
+        logsAuditoriaService.registrarLog(auditLog);
+
+        return enmascararCorreo(socio.getCorreo());
+    }
+
+    /**
+     * Valida el token o código OTP sin consumirlo ni cambiar la clave.
+     */
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = IllegalArgumentException.class)
+    public void validarToken(String identificacion, String token, String ip, String userAgent) {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        if (tenantId == null) throw new IllegalStateException("Error de Seguridad.");
+
+        Socio socio = socioRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Socio no encontrado."));
+
+        TokensRecuperacion tokenRec = tokensRecuperacionRepository
+                .findFirstBySocioIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(socio.getId(), LocalDateTime.now())
+                .orElseThrow(() -> new IllegalArgumentException("Código OTP inválido o expirado."));
+
+        if (tokenRec.getIntentosFallidos() >= 3) {
+            tokenRec.setUtilizado(true);
+            tokensRecuperacionRepository.save(tokenRec);
+            throw new IllegalArgumentException("El código OTP ha sido invalidado por exceso de intentos.");
+        }
+
+        String hashIngresado = hashSha256(token);
+        if (!tokenRec.getTokenHash().equals(hashIngresado)) {
+            tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
+            if (tokenRec.getIntentosFallidos() >= 3) tokenRec.setUtilizado(true);
+            tokensRecuperacionRepository.save(tokenRec);
+            throw new IllegalArgumentException("Código OTP incorrecto.");
+        }
     }
 
     /**

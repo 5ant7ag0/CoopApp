@@ -170,17 +170,43 @@ public class AuthController {
         String ip = getClientIp(request);
         String userAgent = request.getHeader("User-Agent");
         try {
-            authService.solicitarRecuperacion(
+            String correoEnmascarado = authService.solicitarRecuperacion(
                     requestDTO.getIdentificacion(),
                     requestDTO.getCanal(),
                     ip,
                     userAgent != null ? userAgent : "Desconocido"
             );
-            return ResponseEntity.ok(java.util.Map.of("message", "Código/enlace de recuperación enviado exitosamente por " + requestDTO.getCanal() + "."));
+            return ResponseEntity.ok(java.util.Map.of(
+                "message", "Código/enlace de recuperación enviado exitosamente por " + requestDTO.getCanal() + ".",
+                "correoEnmascarado", correoEnmascarado
+            ));
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error interno al solicitar la recuperación: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Endpoint público para validar el token OTP sin consumirlo (para UI modal).
+     * URL: POST http://localhost:8080/api/v1/auth/recuperar/validar-token
+     */
+    @PostMapping("/recuperar/validar-token")
+    @PublicEndpoint
+    public ResponseEntity<?> validarTokenRecuperacion(
+            @RequestBody java.util.Map<String, String> payload,
+            HttpServletRequest request) {
+        String ip = getClientIp(request);
+        String userAgent = request.getHeader("User-Agent");
+        String identificacion = payload.get("identificacion");
+        String token = payload.get("token");
+        try {
+            authService.validarToken(identificacion, token, ip, userAgent != null ? userAgent : "Desconocido");
+            return ResponseEntity.ok(java.util.Map.of("message", "Código OTP válido."));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error interno al validar código: " + e.getMessage());
         }
     }
 
