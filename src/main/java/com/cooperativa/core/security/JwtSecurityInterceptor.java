@@ -56,10 +56,12 @@ public class JwtSecurityInterceptor implements HandlerInterceptor {
             String rol = (String) claims.get("rol");
             Integer tokenTenantId = (Integer) claims.get("empresaId");
 
+            boolean hasSecurityAnnotation = false;
+
             // 4. Validar privilegios de Super Administrador Global si aplica
             if (handlerMethod.hasMethodAnnotation(SuperAdminOnly.class) ||
                 handlerMethod.getBeanType().isAnnotationPresent(SuperAdminOnly.class)) {
-                
+                hasSecurityAnnotation = true;
                 if (!"SUPER_ADMIN_SAAS".equals(rol)) {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.getWriter().write("Error: Acceso Prohibido. Se requieren privilegios de Super Administrador Global.");
@@ -70,7 +72,7 @@ public class JwtSecurityInterceptor implements HandlerInterceptor {
             // Validar privilegios específicos de roles si aplica
             if (handlerMethod.hasMethodAnnotation(RequiresRoles.class) ||
                 handlerMethod.getBeanType().isAnnotationPresent(RequiresRoles.class)) {
-                
+                hasSecurityAnnotation = true;
                 RequiresRoles ann = handlerMethod.getMethodAnnotation(RequiresRoles.class);
                 if (ann == null) {
                     ann = handlerMethod.getBeanType().getAnnotation(RequiresRoles.class);
@@ -90,6 +92,13 @@ public class JwtSecurityInterceptor implements HandlerInterceptor {
                     response.getWriter().write("Error: Acceso denegado. Permisos insuficientes (rol no autorizado).");
                     return false;
                 }
+            }
+
+            // Fail-Secure: si no tiene anotaciones de seguridad, denegar por defecto
+            if (!hasSecurityAnnotation) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.getWriter().write("Error de Seguridad: Acceso denegado. Este endpoint privado no tiene roles especificamente autorizados (Fail-Secure).");
+                return false;
             }
 
             // 5. Validar alineacion con el inquilino (Tenant ID)

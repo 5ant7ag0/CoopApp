@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @Table(name = "cuentas_ahorros", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"empresa_id", "numero_cuenta"})
 })
-public class CuentasAhorros extends BaseEntity {
+public class CuentasAhorros extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -41,8 +41,12 @@ public class CuentasAhorros extends BaseEntity {
     @Column(name = "interes_acumulado", nullable = false)
     private BigDecimal interesAcumulado = BigDecimal.ZERO;
 
-    @Column(nullable = false, length = 20)
-    private String estado = "ACTIVA";
+    @PrePersist
+    public void setDefaults() {
+        if (this.getEstado() == null) {
+            this.setEstado("ACTIVA");
+        }
+    }
 
     @Column(name = "plazo_dias")
     private Integer plazoDias;
@@ -53,6 +57,4 @@ public class CuentasAhorros extends BaseEntity {
     @Column(name = "renovacion_automatica")
     private Boolean renovacionAutomatica = false;
 
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
 }

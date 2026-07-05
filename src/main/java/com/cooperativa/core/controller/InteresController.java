@@ -4,6 +4,7 @@ import com.cooperativa.core.dto.DevengoManualRequestDTO;
 import com.cooperativa.core.dto.CapitalizacionManualRequestDTO;
 import com.cooperativa.core.model.DevengoRegistro;
 import com.cooperativa.core.model.CapitalizacionRegistro;
+import com.cooperativa.core.security.RequiresRoles;
 import com.cooperativa.core.service.InteresAhorroService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/intereses")
+@RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
 @CrossOrigin(origins = "*")
 public class InteresController {
 
@@ -28,11 +30,7 @@ public class InteresController {
             @Valid @RequestBody DevengoManualRequestDTO dto,
             HttpServletRequest request) {
 
-        String rol = (String) request.getAttribute("authRol");
         String username = (String) request.getAttribute("authUsername");
-        if (!"GERENTE_GENERAL".equals(rol) && !"SUPER_ADMIN_SAAS".equals(rol)) {
-            return ResponseEntity.status(403).body("Error: Privilegios insuficientes. Se requiere rol de GERENTE_GENERAL o SUPER_ADMIN_SAAS.");
-        }
 
         try {
             DevengoRegistro devengo = interesAhorroService.devengarInteresesDiarios(dto.getFecha(), username);
@@ -53,11 +51,7 @@ public class InteresController {
             @Valid @RequestBody CapitalizacionManualRequestDTO dto,
             HttpServletRequest request) {
 
-        String rol = (String) request.getAttribute("authRol");
         String username = (String) request.getAttribute("authUsername");
-        if (!"GERENTE_GENERAL".equals(rol) && !"SUPER_ADMIN_SAAS".equals(rol)) {
-            return ResponseEntity.status(403).body("Error: Privilegios insuficientes. Se requiere rol de GERENTE_GENERAL o SUPER_ADMIN_SAAS.");
-        }
 
         try {
             CapitalizacionRegistro cap = interesAhorroService.capitalizarInteresesMensuales(dto.getAnio(), dto.getMes(), username);

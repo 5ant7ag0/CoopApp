@@ -85,8 +85,27 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.BAD_REQUEST, "Bad Request", message);
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<Object> handleResponseStatusException(org.springframework.web.server.ResponseStatusException ex) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        if (status == null) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+        return buildResponse(status, status.getReasonPhrase(), ex.getReason() != null ? ex.getReason() : ex.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> handleGeneralException(Exception ex) {
+        // Si la excepción está anotada con @ResponseStatus, respetar su código de estado HTTP
+        org.springframework.web.bind.annotation.ResponseStatus responseStatus = 
+                org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(ex.getClass(), org.springframework.web.bind.annotation.ResponseStatus.class);
+        
+        if (responseStatus != null) {
+            String message = responseStatus.reason().isEmpty() ? ex.getMessage() : responseStatus.reason();
+            HttpStatus status = responseStatus.value();
+            return buildResponse(status, status.getReasonPhrase(), message);
+        }
+
         // Log interno para depuración (oculto en la respuesta HTTP)
         ex.printStackTrace();
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error", 

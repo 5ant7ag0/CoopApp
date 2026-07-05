@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.retry.annotation.Backoff;
+import org.springframework.context.annotation.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,6 +76,10 @@ public class CreditoService {
 
     @Autowired
     private EmpresaService empresaService;
+
+    @Autowired
+    @Lazy
+    private CreditoService self;
 
     // ==========================================
     // FUNCIONES CRUD
@@ -189,7 +194,7 @@ public class CreditoService {
                 .orElseThrow(() -> new IllegalArgumentException("Error: Credito no encontrado en esta institucion."));
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Credito aprobarCredito(Integer id) {
         Credito credito = obtenerPorId(id);
         if (!"SOLICITADO".equals(credito.getEstado()) && !"EN_REVISION".equals(credito.getEstado())) {
@@ -414,7 +419,7 @@ public class CreditoService {
             throw new IllegalArgumentException("Error: Origen de fondos inválido.");
         }
 
-        return ejecutarPagoCore(credito, cuenta, cajaActiva, pagoDTO.getOrigenFondos(), pagoDTO.getMonto(), canalTransaccion, cajeroId, ipUsuario, dispositivo);
+        return self.ejecutarPagoCore(credito, cuenta, cajaActiva, pagoDTO.getOrigenFondos(), pagoDTO.getMonto(), canalTransaccion, cajeroId, ipUsuario, dispositivo);
     }
 
     @Transactional(isolation = Isolation.SERIALIZABLE, rollbackFor = Exception.class)
@@ -697,7 +702,7 @@ public class CreditoService {
 
         // Revisar saldo y pagar
         if (cuentaVista.getSaldo().compareTo(montoCuota) >= 0) {
-            ejecutarPagoCore(
+            self.ejecutarPagoCore(
                     credito,
                     cuentaVista,
                     null,
@@ -736,7 +741,7 @@ public class CreditoService {
                         .orElse(null);
 
                 if (cuentaVista != null && cuentaVista.getSaldo().compareTo(montoCuota) >= 0) {
-                    ejecutarDebitoAutomaticoDeCuota(cuota.getId());
+                    self.ejecutarDebitoAutomaticoDeCuota(cuota.getId());
                     exitosos++;
                 } else {
                     omitidos++;
@@ -761,7 +766,7 @@ public class CreditoService {
         return cuotasRepository.findByCreditoIdOrderByNumeroCuotaAsc(credito.getId());
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Credito revisarCredito(Integer id, String authUsername) {
         Integer tenantId = TenantContext.getCurrentTenant();
         Credito credito = obtenerPorId(id);
@@ -778,7 +783,7 @@ public class CreditoService {
         return credito;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Credito rechazarCredito(Integer id, String motivo) {
         Credito credito = obtenerPorId(id);
         if (!"SOLICITADO".equals(credito.getEstado()) && !"EN_REVISION".equals(credito.getEstado())) {

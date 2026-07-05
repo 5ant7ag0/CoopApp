@@ -189,7 +189,7 @@ public class CuentasAhorrosService {
     }
 
     // ACTUALIZAR CUENTA (Cambio de tipo o estado administrativo)
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CuentasAhorros actualizarCuenta(Integer id, CuentasAhorrosRequestDTO dto) {
         CuentasAhorros cuentaExistente = obtenerPorId(id);
 
@@ -203,7 +203,7 @@ public class CuentasAhorrosService {
     }
 
     // ELIMINACIÓN LÓGICA (Inactivación de la cuenta por seguridad de auditoría)
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void eliminarLogico(Integer id) {
         CuentasAhorros cuenta = obtenerPorId(id);
         cuenta.setEstado("INACTIVA");

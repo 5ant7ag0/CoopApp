@@ -15,6 +15,7 @@ public class OtpVerificacion {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
+    @org.hibernate.annotations.TenantId
     @Column(name = "empresa_id", nullable = false)
     private Integer empresaId;
 

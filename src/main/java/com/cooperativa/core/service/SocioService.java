@@ -259,6 +259,15 @@ public class SocioService {
             throw new IllegalArgumentException("Error: El archivo provisto esta vacio.");
         }
 
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new IllegalArgumentException("Error: El tamaño del archivo excede el limite permitido de 5MB.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || (!contentType.equals("image/jpeg") && !contentType.equals("image/png"))) {
+            throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan imagenes JPG y PNG.");
+        }
+
         // Crear el directorio uploads/perfil si no existe
         String uploadDir = System.getProperty("user.dir") + "/uploads/perfil/";
         java.io.File dir = new java.io.File(uploadDir);
@@ -305,6 +314,17 @@ public class SocioService {
 
         if (file.isEmpty()) {
             throw new IllegalArgumentException("Error: El archivo provisto esta vacio.");
+        }
+
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new IllegalArgumentException("Error: El tamaño del archivo excede el limite permitido de 5MB.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || (!contentType.equals("application/pdf") && 
+                                    !contentType.equals("image/jpeg") && 
+                                    !contentType.equals("image/png"))) {
+            throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan archivos PDF, JPG y PNG.");
         }
 
         // Crear el directorio uploads/kyc si no existe
@@ -357,6 +377,17 @@ public class SocioService {
             throw new IllegalArgumentException("Error: El archivo provisto esta vacio.");
         }
 
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new IllegalArgumentException("Error: El tamaño del archivo excede el limite permitido de 5MB.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || (!contentType.equals("application/pdf") && 
+                                    !contentType.equals("image/jpeg") && 
+                                    !contentType.equals("image/png"))) {
+            throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan archivos PDF, JPG y PNG.");
+        }
+
         // Crear el directorio uploads/kyc si no existe
         String uploadDir = System.getProperty("user.dir") + "/uploads/kyc/";
         java.io.File dir = new java.io.File(uploadDir);
@@ -405,6 +436,15 @@ public class SocioService {
 
         if (file.isEmpty()) {
             throw new IllegalArgumentException("Error: El archivo provisto esta vacio.");
+        }
+
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new IllegalArgumentException("Error: El tamaño del archivo excede el limite permitido de 5MB.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || (!contentType.equals("image/jpeg") && !contentType.equals("image/png"))) {
+            throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan imagenes JPG y PNG.");
         }
 
         // Crear el directorio uploads/kyc si no existe

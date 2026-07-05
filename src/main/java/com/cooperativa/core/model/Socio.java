@@ -15,7 +15,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
         @UniqueConstraint(columnNames = {"empresa_id", "identificacion"})
 })
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
-public class Socio extends BaseEntity {
+public class Socio extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -86,11 +86,12 @@ public class Socio extends BaseEntity {
     @Column(length = 100)
     private String profesion;
 
-    @Column(nullable = false, length = 20)
-    private String estado = "PENDIENTE_APROBACION";
-
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @PrePersist
+    public void setDefaults() {
+        if (this.getEstado() == null) {
+            this.setEstado("PENDIENTE_APROBACION");
+        }
+    }
 
     @Transient
     private String estadoRiesgo = "SIN_CREDITO";

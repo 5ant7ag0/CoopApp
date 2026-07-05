@@ -11,7 +11,7 @@ import lombok.Setter;
         @UniqueConstraint(columnNames = {"empresa_id", "username"}),
         @UniqueConstraint(columnNames = {"empresa_id", "identificacion"})
 })
-public class UsuariosAdmin extends BaseEntity {
+public class UsuariosAdmin extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -33,8 +33,12 @@ public class UsuariosAdmin extends BaseEntity {
     @Column(nullable = false, length = 50)
     private String rol; // 'CAJERO', 'OFICIAL_DE_CREDITO', 'GERENTE', 'AUDITOR'
 
-    @Column(nullable = false, length = 20)
-    private String estado = "ACTIVO"; // 'ACTIVO' o 'INACTIVO'
+    @PrePersist
+    public void setDefaults() {
+        if (this.getEstado() == null) {
+            this.setEstado("ACTIVO");
+        }
+    }
 
     @Column(nullable = false, length = 20)
     private String identificacion;

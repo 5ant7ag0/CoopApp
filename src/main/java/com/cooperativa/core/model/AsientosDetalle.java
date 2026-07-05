@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 @Setter
 @Entity
 @Table(name = "asientos_detalle")
+@org.hibernate.annotations.Immutable
 public class AsientosDetalle extends BaseEntity {
 
     @Id

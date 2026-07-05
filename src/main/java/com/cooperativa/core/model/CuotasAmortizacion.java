@@ -15,7 +15,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
         @UniqueConstraint(columnNames = {"credito_id", "numero_cuota"})
 })
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
-public class CuotasAmortizacion {
+public class CuotasAmortizacion extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -60,12 +60,13 @@ public class CuotasAmortizacion {
     @Column(name = "dias_atraso", nullable = false)
     private Integer diasAtraso = 0;
 
-    @Column(nullable = false, length = 20)
-    private String estado = "PENDIENTE"; // 'PENDIENTE', 'PAGADA', 'EN_MORA'
-
     @Column(name = "fecha_ultimo_pago")
     private LocalDateTime fechaUltimoPago;
 
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @PrePersist
+    public void setDefaults() {
+        if (this.getEstado() == null) {
+            this.setEstado("PENDIENTE");
+        }
+    }
 }

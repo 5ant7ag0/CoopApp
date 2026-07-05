@@ -568,8 +568,8 @@ public class AuthService {
                 );
             } else {
                 jdbcTemplate.update(
-                    "INSERT INTO socios_credenciales (socio_id, password_hash, estado_acceso, intentos_fallidos) VALUES (?, ?, 'ACTIVO', 0)",
-                    socio.getId(), passHash
+                    "INSERT INTO socios_credenciales (socio_id, password_hash, estado_acceso, intentos_fallidos, empresa_id) VALUES (?, ?, 'ACTIVO', 0, ?)",
+                    socio.getId(), passHash, resolvedTenantId
                 );
             }
 

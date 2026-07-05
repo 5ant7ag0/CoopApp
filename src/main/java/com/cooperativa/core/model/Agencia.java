@@ -8,14 +8,17 @@ import java.time.LocalDateTime;
 @Getter
 @Setter
 @Entity
-@Table(name = "agencias")
-public class Agencia {
+@Table(
+    name = "agencias",
+    uniqueConstraints = @UniqueConstraint(columnNames = {"empresa_id", "codigo"})
+)
+public class Agencia extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    @Column(nullable = false, unique = true, length = 20)
+    @Column(nullable = false, length = 20)
     private String codigo;
 
     @Column(nullable = false, length = 100)
@@ -24,9 +27,10 @@ public class Agencia {
     @Column(length = 255)
     private String direccion;
 
-    @Column(nullable = false, length = 20)
-    private String estado = "ACTIVA";
-
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @PrePersist
+    public void setDefaults() {
+        if (this.getEstado() == null) {
+            this.setEstado("ACTIVA");
+        }
+    }
 }

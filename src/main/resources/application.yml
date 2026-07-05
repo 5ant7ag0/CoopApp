@@ -19,11 +19,19 @@ spring:
         jdbc:
           batch_size: 50
           fetch_size: 100
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
 
 server:
   port: 8080
   servlet:
     context-path: /api/v1
+
+app:
+  jwt:
+    secret: ${APP_JWT_SECRET}
 
 resend:
   api-key: ${RESEND_API_KEY:}

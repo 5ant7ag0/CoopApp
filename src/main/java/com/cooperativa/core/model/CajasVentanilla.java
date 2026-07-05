@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
     name = "cajas_ventanilla",
     uniqueConstraints = @UniqueConstraint(columnNames = {"empresa_id", "codigo"})
 )
-public class CajasVentanilla extends BaseEntity {
+public class CajasVentanilla extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -41,9 +41,10 @@ public class CajasVentanilla extends BaseEntity {
     @JoinColumn(name = "cuenta_contable_id")
     private PlanCuentas cuentaContable;
 
-    @Column(nullable = false, length = 20)
-    private String estado = "ACTIVA"; // 'ACTIVA' o 'INACTIVA'
-
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @PrePersist
+    public void setDefaults() {
+        if (this.getEstado() == null) {
+            this.setEstado("ACTIVA");
+        }
+    }
 }

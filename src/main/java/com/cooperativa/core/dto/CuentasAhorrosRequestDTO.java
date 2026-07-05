@@ -16,6 +16,7 @@ public class CuentasAhorrosRequestDTO {
     private String numeroCuenta;
 
     @NotBlank(message = "El tipo de cuenta es obligatorio")
+    @jakarta.validation.constraints.Pattern(regexp = "^(AHORRO_VISTA|APORTACIONES)$", message = "El tipo de cuenta debe ser AHORRO_VISTA o APORTACIONES")
     private String tipo; // 'AHORRO_VISTA' o 'APORTACIONES'
 
     private Integer productoAhorroId;

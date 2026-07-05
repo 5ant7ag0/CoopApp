@@ -15,7 +15,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
         @UniqueConstraint(columnNames = {"empresa_id", "numero_credito"})
 })
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
-public class Credito extends BaseEntity {
+@AttributeOverride(name = "createdAt", column = @Column(name = "fecha_solicitud", updatable = false))
+public class Credito extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -53,11 +54,12 @@ public class Credito extends BaseEntity {
     @Column(name = "garantia_descripcion", nullable = false, columnDefinition = "TEXT")
     private String garantiaDescripcion;
 
-    @Column(nullable = false, length = 20)
-    private String estado = "SOLICITADO"; // 'SOLICITADO', 'EN_REVISION', 'DESEMBOLSADO', etc.
-
-    @Column(name = "fecha_solicitud", updatable = false)
-    private LocalDateTime fechaSolicitud = LocalDateTime.now();
+    @PrePersist
+    public void setDefaults() {
+        if (this.getEstado() == null) {
+            this.setEstado("SOLICITADO");
+        }
+    }
 
     @Column(name = "fecha_desembolso")
     private LocalDateTime fechaDesembolso;

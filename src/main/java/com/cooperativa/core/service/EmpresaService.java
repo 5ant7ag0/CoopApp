@@ -260,6 +260,15 @@ public class EmpresaService {
             throw new IllegalArgumentException("Error: El archivo provisto está vacío.");
         }
 
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new IllegalArgumentException("Error: El tamaño del logo excede el límite permitido de 5MB.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || (!contentType.equals("image/jpeg") && !contentType.equals("image/png"))) {
+            throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan logos en formato JPG y PNG.");
+        }
+
         // Crear el directorio uploads/logos si no existe
         String uploadDir = System.getProperty("user.dir") + "/uploads/logos/";
         java.io.File dir = new java.io.File(uploadDir);

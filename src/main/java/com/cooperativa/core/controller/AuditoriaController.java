@@ -1,5 +1,6 @@
 package com.cooperativa.core.controller;
 
+import com.cooperativa.core.security.RequiresRoles;
 import com.cooperativa.core.service.LogsAuditoriaService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -7,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/auditoria")
+@RequiresRoles({"AUDITOR_INTERNO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
 @CrossOrigin(origins = "*")
 public class AuditoriaController {
 
@@ -19,11 +21,6 @@ public class AuditoriaController {
      */
     @GetMapping
     public ResponseEntity<?> listarAuditoria(jakarta.servlet.http.HttpServletRequest request) {
-        String rol = (String) request.getAttribute("authRol");
-        if (!"AUDITOR_INTERNO".equals(rol) && !"GERENTE_GENERAL".equals(rol) && !"SUPER_ADMIN_SAAS".equals(rol)) {
-            return ResponseEntity.status(403).body("Acceso denegado: Se requiere rol de Auditor Interno o Alta Gerencia para ver las trazas de auditoría.");
-        }
-
         try {
             return ResponseEntity.ok(auditoriaService.obtenerAuditoriaGlobal());
         } catch (Exception e) {

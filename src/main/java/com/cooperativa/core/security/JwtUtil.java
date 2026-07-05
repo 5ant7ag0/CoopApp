@@ -6,6 +6,8 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 import com.auth0.jwt.interfaces.JWTVerifier;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,18 +19,20 @@ import java.util.Map;
 @Component
 public class JwtUtil {
 
-    // Clave secreta robusta (En produccion se debe inyectar desde variables de entorno)
-    private static final String SECRET_KEY = "CooperativaCoreSecretKey2026!SistemaFinancieroSaaS";
+    @Value("${app.jwt.secret}")
+    private String secretKey;
+
     private static final String ISSUER = "cooperativa-core-api";
 
     // Duracion del token: 8 horas (en milisegundos)
     private static final long EXPIRATION_TIME = 8 * 60 * 60 * 1000L; 
 
-    private final Algorithm algorithm;
-    private final JWTVerifier verifier;
+    private Algorithm algorithm;
+    private JWTVerifier verifier;
 
-    public JwtUtil() {
-        this.algorithm = Algorithm.HMAC256(SECRET_KEY);
+    @PostConstruct
+    public void init() {
+        this.algorithm = Algorithm.HMAC256(secretKey);
         this.verifier = JWT.require(algorithm)
                 .withIssuer(ISSUER)
                 .build();

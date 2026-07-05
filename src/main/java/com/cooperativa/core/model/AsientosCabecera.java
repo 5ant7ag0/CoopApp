@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 @Setter
 @Entity
 @Table(name = "asientos_cabecera")
+@org.hibernate.annotations.Immutable
 public class AsientosCabecera extends BaseEntity {
 
     @Id
