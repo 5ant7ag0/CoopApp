@@ -26,4 +26,11 @@ public interface UsuarioAdminRepository extends JpaRepository<UsuariosAdmin, Int
     @Query(value = "SELECT * FROM usuarios_admin WHERE empresa_id = :empresaId AND rol = 'GERENTE_GENERAL' LIMIT 1", nativeQuery = true)
     Optional<UsuariosAdmin> findGerenteGeneralRaw(@Param("empresaId") Integer empresaId);
 
+    boolean existsByIdentificacionAndEmpresaId(String identificacion, Integer empresaId);
+
+    @Query(value = "SELECT * FROM usuarios_admin WHERE empresa_id = :empresaId AND (username = :identOrUsername OR identificacion = :identOrUsername) LIMIT 1", nativeQuery = true)
+    Optional<UsuariosAdmin> findByUsernameOrIdentificacionRaw(@Param("identOrUsername") String identOrUsername, @Param("empresaId") Integer empresaId);
+
+    @Query(value = "SELECT * FROM usuarios_admin WHERE id = :id LIMIT 1", nativeQuery = true)
+    Optional<UsuariosAdmin> findByIdRaw(@Param("id") Integer id);
 }

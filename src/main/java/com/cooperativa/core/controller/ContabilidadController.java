@@ -35,6 +35,7 @@ public class ContabilidadController {
      * URL: http://localhost:8080/api/v1/contabilidad/plan-cuentas
      */
     @GetMapping("/plan-cuentas")
+    @RequiresRoles({"CONTADOR", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "ADMINISTRADOR"})
     public ResponseEntity<?> obtenerPlanCuentas() {
         try {
             return ResponseEntity.ok(contabilidadService.obtenerPlanCuentas());

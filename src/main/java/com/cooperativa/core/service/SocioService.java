@@ -120,7 +120,11 @@ public class SocioService {
         tokensRecuperacionRepository.save(tokenRec);
 
         // Cuerpo HTML Corporativo de Bienvenida y Activacion de Banca Digital
-        String welcomeLink = "http://localhost:5173/establecer-password-socio?token=" + tokenRaw + "&identificacion=" + socioCreado.getIdentificacion();
+        String nombreCoop = (empresa.getNombreComercial() != null && !empresa.getNombreComercial().trim().isEmpty())
+            ? empresa.getNombreComercial().trim()
+            : (empresa.getRazonSocial() != null ? empresa.getRazonSocial().trim() : "COOPERATIVA");
+
+        String welcomeLink = "http://localhost:5173/establecer-password?token=" + tokenRaw + "&identificacion=" + socioCreado.getIdentificacion();
         String welcomeHtml = String.format(
             "<!DOCTYPE html><html><head><style>" +
             "body { font-family: Arial, sans-serif; background-color: #f8fafc; color: #1e293b; padding: 20px; }" +
@@ -131,20 +135,23 @@ public class SocioService {
             ".btn { display: inline-block; background-color: #0054A6; color: white !important; font-weight: bold; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin-top: 20px; text-align: center; }" +
             ".footer { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 30px; border-top: 1px solid #f1f5f9; padding-top: 15px; }" +
             "</style></head><body><div class=\"card\">" +
-            "<div class=\"header\"><div class=\"logo\">COOPERATIVA DE AHORRO Y CRÉDITO ITQ</div></div>" +
-            "<div class=\"title\">¡Bienvenido a la Cooperativa ITQ!</div>" +
+            "<div class=\"header\"><div class=\"logo\">%s</div></div>" +
+            "<div class=\"title\">¡Bienvenido a %s!</div>" +
             "<p>Estimado/a <strong>%s</strong>,</p>" +
             "<p>Su registro como socio ha sido completado con éxito. Ahora puede activar su acceso a la Banca Digital para realizar consultas, transferencias y pagos en línea.</p>" +
             "<p>Por favor, haga clic en el botón a continuación para configurar su contraseña y activar su cuenta:</p>" +
             "<div style=\"text-align: center;\"><a href=\"%s\" class=\"btn\">Activar Banca Digital</a></div>" +
             "<p style=\"font-size: 12px; color: #64748b; margin-top: 20px;\">Este enlace es de uso único y tiene una validez de 15 minutos.</p>" +
-            "<div class=\"footer\">Este es un mensaje automático de la Cooperativa ITQ Ltda. Por favor no responda a este correo.</div>" +
+            "<div class=\"footer\">Este es un mensaje automático de %s. Por favor no responda a este correo.</div>" +
             "</div></body></html>",
+            nombreCoop.toUpperCase(),
+            nombreCoop,
             socioCreado.getNombresCompletos(),
-            welcomeLink
+            welcomeLink,
+            nombreCoop
         );
 
-        resendService.enviarCorreo(socioCreado.getCorreo(), "Activa tu Banca Digital - Cooperativa", welcomeHtml);
+        resendService.enviarCorreo(socioCreado.getCorreo(), "Activa tu Banca Digital - " + nombreCoop, welcomeHtml);
 
         return socioCreado;
     }

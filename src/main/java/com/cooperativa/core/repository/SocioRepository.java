@@ -20,4 +20,12 @@ public interface SocioRepository extends JpaRepository<Socio, Integer> {
 
     @org.springframework.data.jpa.repository.Query(value = "SELECT COUNT(*) FROM socios WHERE empresa_id = :empresaId", nativeQuery = true)
     long countByEmpresaId(@org.springframework.data.repository.query.Param("empresaId") Integer empresaId);
+
+    @org.springframework.data.jpa.repository.Query(value = "SELECT * FROM socios WHERE id = :id LIMIT 1", nativeQuery = true)
+    Optional<Socio> findByIdRaw(@org.springframework.data.repository.query.Param("id") Integer id);
+
+    @org.springframework.data.jpa.repository.Query(value = "SELECT * FROM socios WHERE empresa_id = :empresaId AND identificacion = :identificacion LIMIT 1", nativeQuery = true)
+    Optional<Socio> findByIdentificacionAndEmpresaIdRaw(
+            @org.springframework.data.repository.query.Param("identificacion") String identificacion, 
+            @org.springframework.data.repository.query.Param("empresaId") Integer empresaId);
 }

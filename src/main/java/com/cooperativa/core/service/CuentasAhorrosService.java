@@ -108,10 +108,21 @@ public class CuentasAhorrosService {
             cuenta.setTipo(producto.getTipoProducto());
         } else {
             cuenta.setTipo(dto.getTipo());
-            if ("AHORRO_VISTA".equals(dto.getTipo())) {
-                Empresa empresa = empresaService.obtenerMiEmpresa();
-                if (empresa != null && empresa.getTasaInteresPasiva() != null) {
-                    cuenta.setTasaInteresAnual(empresa.getTasaInteresPasiva());
+            if (dto.getTipo() != null) {
+                java.util.List<ProductoAhorro> productos = productoAhorroRepository.findByEmpresaId(tenantId);
+                ProductoAhorro defaultProd = productos.stream()
+                        .filter(p -> dto.getTipo().equals(p.getTipoProducto()) && "ACTIVO".equals(p.getEstado()))
+                        .findFirst()
+                        .orElse(null);
+                
+                if (defaultProd != null) {
+                    cuenta.setProductoAhorro(defaultProd);
+                    cuenta.setTasaInteresAnual(defaultProd.getTasaInteresAnual());
+                } else if ("AHORRO_VISTA".equals(dto.getTipo())) {
+                    Empresa empresa = empresaService.obtenerMiEmpresa();
+                    if (empresa != null && empresa.getTasaInteresPasiva() != null) {
+                        cuenta.setTasaInteresAnual(empresa.getTasaInteresPasiva());
+                    }
                 }
             }
         }
@@ -441,24 +452,94 @@ public class CuentasAhorrosService {
             Font normalFont = FontFactory.getFont(FontFactory.HELVETICA, 9, Color.DARK_GRAY);
             Font headerTableFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, Color.WHITE);
 
-            // 1. Título e Información de la Empresa
-            Paragraph header = new Paragraph(empresa.getNombreComercial().toUpperCase(), titleFont);
-            header.setAlignment(Element.ALIGN_LEFT);
-            document.add(header);
+            // 1. Cabecera Ejecutiva Estándar (Doble columna: izquierda logo, derecha metadatos)
+            PdfPTable headerTable = new PdfPTable(2);
+            headerTable.setWidthPercentage(100);
+            headerTable.setSpacingAfter(15);
+            headerTable.setWidths(new float[]{30f, 70f}); // 30% logo, 70% metadatos
 
-            Paragraph infoEmpresa = new Paragraph(
-                    "RUC: " + empresa.getRuc() + "\n" +
-                    "Código SEPS: " + empresa.getCodigoSeps() + "\n" +
-                    "Representante Legal: " + empresa.getRepresentanteLegal(),
-                    FontFactory.getFont(FontFactory.HELVETICA, 8, Color.GRAY)
-            );
-            infoEmpresa.setSpacingAfter(15);
-            document.add(infoEmpresa);
+            // Celda Izquierda: Logotipo
+            PdfPCell logoCell = new PdfPCell();
+            logoCell.setBorder(PdfPCell.NO_BORDER);
+            logoCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+
+            boolean logoCargado = false;
+            String logoPath = empresa.getLogoUrl();
+            if (logoPath != null && !logoPath.trim().isEmpty()) {
+                try {
+                    String fullPath = logoPath;
+                    if (logoPath.startsWith("/uploads/")) {
+                        fullPath = System.getProperty("user.dir") + logoPath;
+                    }
+                    Image logoImg = Image.getInstance(fullPath);
+                    logoImg.scaleToFit(80, 50); // Escalar a tamaño apropiado
+                    logoCell.addElement(logoImg);
+                    logoCargado = true;
+                } catch (Exception e) {
+                    log.warn("No se pudo cargar el logo de la empresa desde: " + logoPath + " - " + e.getMessage());
+                }
+            }
+
+            if (!logoCargado) {
+                // Dibujar un marcador de posición geométrico de color azul (#0054A6)
+                PdfPTable fallbackLogo = new PdfPTable(1);
+                fallbackLogo.setWidthPercentage(40);
+                fallbackLogo.setHorizontalAlignment(Element.ALIGN_LEFT);
+                PdfPCell fallbackCell = new PdfPCell(new Paragraph(" "));
+                fallbackCell.setBackgroundColor(Color.decode("#0054A6"));
+                fallbackCell.setFixedHeight(40f);
+                fallbackCell.setBorder(PdfPCell.NO_BORDER);
+                fallbackLogo.addCell(fallbackCell);
+                logoCell.addElement(fallbackLogo);
+            }
+
+            headerTable.addCell(logoCell);
+
+            // Celda Derecha: Metadatos alineados a la derecha
+            PdfPCell metaCell = new PdfPCell();
+            metaCell.setBorder(PdfPCell.NO_BORDER);
+            metaCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+
+            String tName = (empresa.getNombreComercial() != null && !empresa.getNombreComercial().trim().isEmpty())
+                ? empresa.getNombreComercial().trim().toUpperCase()
+                : (empresa.getRazonSocial() != null ? empresa.getRazonSocial().trim().toUpperCase() : "COOPERATIVA");
+            Paragraph pName = new Paragraph(tName, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, Color.decode("#1E293B")));
+            pName.setAlignment(Element.ALIGN_RIGHT);
+            metaCell.addElement(pName);
+
+            String rucText = "RUC: " + (empresa.getRuc() != null ? empresa.getRuc().trim() : "1790000000001");
+            Paragraph pRuc = new Paragraph(rucText, FontFactory.getFont(FontFactory.HELVETICA, 9, Color.decode("#64748B")));
+            pRuc.setAlignment(Element.ALIGN_RIGHT);
+            metaCell.addElement(pRuc);
+
+            String addressText = (empresa.getDireccion() != null && !empresa.getDireccion().trim().isEmpty()) 
+                ? empresa.getDireccion().trim() 
+                : "Av. Principal N28-30, Matriz Principal";
+            Paragraph pAddress = new Paragraph(addressText, FontFactory.getFont(FontFactory.HELVETICA, 8, Color.decode("#64748B")));
+            pAddress.setAlignment(Element.ALIGN_RIGHT);
+            metaCell.addElement(pAddress);
+
+            String tel = empresa.getTelefono() != null ? empresa.getTelefono().trim() : "";
+            String email = empresa.getCorreoInstitucional() != null ? empresa.getCorreoInstitucional().trim() : "";
+            String contactText = "Contacto: " + (tel.isEmpty() && email.isEmpty() ? "(02) 200-3000 | info@cooperativa.fin.ec" : (tel + (!tel.isEmpty() && !email.isEmpty() ? " | " : "") + email));
+            Paragraph pContact = new Paragraph(contactText, FontFactory.getFont(FontFactory.HELVETICA, 8, Color.decode("#64748B")));
+            pContact.setAlignment(Element.ALIGN_RIGHT);
+            metaCell.addElement(pContact);
+
+            headerTable.addCell(metaCell);
+            document.add(headerTable);
 
             // Línea divisoria
-            Paragraph linea = new Paragraph("__________________________________________________________________________________", FontFactory.getFont(FontFactory.HELVETICA, 9, Color.LIGHT_GRAY));
-            linea.setSpacingAfter(15);
-            document.add(linea);
+            PdfPTable lineTable = new PdfPTable(1);
+            lineTable.setWidthPercentage(100);
+            lineTable.setSpacingAfter(15);
+            PdfPCell lineCell = new PdfPCell();
+            lineCell.setBorder(PdfPCell.BOTTOM);
+            lineCell.setBorderColor(Color.decode("#E2E8F0")); // slate-200
+            lineCell.setBorderWidth(1f);
+            lineCell.setFixedHeight(1f);
+            lineTable.addCell(lineCell);
+            document.add(lineTable);
 
             // 2. Información del Estado de Cuenta
             Paragraph tituloReporte = new Paragraph("ESTADO DE CUENTA DE AHORROS", sectionTitleFont);

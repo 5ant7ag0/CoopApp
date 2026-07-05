@@ -3,6 +3,8 @@ package com.cooperativa.core.controller;
 import com.cooperativa.core.config.TenantContext;
 import com.cooperativa.core.model.OtpVerificacion;
 import com.cooperativa.core.repository.OtpVerificacionRepository;
+import com.cooperativa.core.repository.EmpresaRepository;
+import com.cooperativa.core.model.Empresa;
 import com.cooperativa.core.service.ResendService;
 import com.cooperativa.core.util.EmailTemplateBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,9 @@ public class OtpController {
 
     @Autowired
     private EmailTemplateBuilder emailTemplateBuilder;
+
+    @Autowired
+    private EmpresaRepository empresaRepository;
 
     @PostMapping("/enviar")
     public ResponseEntity<?> enviarOtp(@RequestBody Map<String, String> request) {
@@ -59,16 +64,21 @@ public class OtpController {
 
         otpVerificacionRepository.save(otp);
 
+        String coopName = empresaRepository.findById(tenantId)
+            .map(Empresa::getNombreComercial)
+            .orElse("COOPERATIVA DE AHORRO Y CRÉDITO");
+
         // Cuerpo HTML Corporativo generado dinámicamente
         String cuerpoOtp = emailTemplateBuilder.buildOtpBlock(otpCode);
         String htmlBody = emailTemplateBuilder.buildCorporateEmail(
             "Verificación de Correo Electrónico",
             "Estimado usuario,<br/><br/>Utilice el siguiente código de verificación de 6 dígitos para validar su correo electrónico en el proceso de registro de socio:",
             cuerpoOtp,
-            "Este código es de uso único y tiene una validez de 5 minutos. No comparta este código con nadie."
+            "Este código es de uso único y tiene una validez de 5 minutos. No comparta este código con nadie.",
+            coopName
         );
 
-        resendService.enviarCorreo(email.trim().toLowerCase(), "Código de Verificación OTP - Cooperativa", htmlBody);
+        resendService.enviarCorreo(email.trim().toLowerCase(), "Código de Verificación OTP - " + coopName, htmlBody);
 
         return ResponseEntity.ok(Map.of("message", "Código OTP enviado exitosamente."));
     }

@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -62,6 +63,9 @@ public class AuthService {
 
     @Autowired
     private LogsAuditoriaService logsAuditoriaService;
+
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     /**
      * Autenticacion de personal administrativo (Backoffice).
@@ -434,28 +438,60 @@ public class AuthService {
      */
     @Transactional(rollbackFor = Exception.class, noRollbackFor = IllegalArgumentException.class)
     public void validarToken(String identificacion, String token, String ip, String userAgent) {
-        Integer tenantId = TenantContext.getCurrentTenant();
-        if (tenantId == null) throw new IllegalStateException("Error de Seguridad.");
+        if (token == null || token.trim().isEmpty()) {
+            throw new IllegalArgumentException("El token o codigo OTP es requerido.");
+        }
+        if (identificacion == null || identificacion.trim().isEmpty()) {
+            throw new IllegalArgumentException("La identificacion o usuario es requerido.");
+        }
 
-        Socio socio = socioRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId)
-                .orElseThrow(() -> new IllegalArgumentException("Socio no encontrado."));
+        String tokenHash = hashSha256(token);
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            "SELECT id, empresa_id, usuario_admin_id, socio_id, intentos_fallidos FROM tokens_recuperacion WHERE token_hash = ? AND utilizado = false",
+            tokenHash
+        );
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("Código OTP inválido o expirado.");
+        }
 
-        TokensRecuperacion tokenRec = tokensRecuperacionRepository
-                .findFirstBySocioIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(socio.getId(), LocalDateTime.now())
-                .orElseThrow(() -> new IllegalArgumentException("Código OTP inválido o expirado."));
+        Map<String, Object> tokenRow = rows.get(0);
+        Integer resolvedTenantId = (Integer) tokenRow.get("empresa_id");
+        Integer intentosFallidos = (Integer) tokenRow.get("intentos_fallidos");
+        Long tokenId = ((Number) tokenRow.get("id")).longValue();
 
-        if (tokenRec.getIntentosFallidos() >= 3) {
-            tokenRec.setUtilizado(true);
-            tokensRecuperacionRepository.save(tokenRec);
+        TenantContext.setCurrentTenant(resolvedTenantId);
+
+        if (intentosFallidos >= 3) {
+            jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
             throw new IllegalArgumentException("El código OTP ha sido invalidado por exceso de intentos.");
         }
 
-        String hashIngresado = hashSha256(token);
-        if (!tokenRec.getTokenHash().equals(hashIngresado)) {
-            tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
-            if (tokenRec.getIntentosFallidos() >= 3) tokenRec.setUtilizado(true);
-            tokensRecuperacionRepository.save(tokenRec);
-            throw new IllegalArgumentException("Código OTP incorrecto.");
+        // Validar si el usuario/socio coincide
+        boolean matches = false;
+        Number socioId = (Number) tokenRow.get("socio_id");
+        Number adminId = (Number) tokenRow.get("usuario_admin_id");
+
+        if (socioId != null) {
+            Optional<Socio> socioOpt = socioRepository.findByIdRaw(socioId.intValue());
+            if (socioOpt.isPresent() && identificacion.equals(socioOpt.get().getIdentificacion())) {
+                matches = true;
+            }
+        } else if (adminId != null) {
+            Optional<UsuariosAdmin> adminOpt = adminRepository.findByIdRaw(adminId.intValue());
+            if (adminOpt.isPresent() && (identificacion.equals(adminOpt.get().getUsername()) || identificacion.equals(adminOpt.get().getIdentificacion()))) {
+                matches = true;
+            }
+        }
+
+        if (!matches) {
+            // Incrementar intentos fallidos
+            jdbcTemplate.update("UPDATE tokens_recuperacion SET intentos_fallidos = intentos_fallidos + 1 WHERE id = ?", tokenId);
+            int nuevosIntentos = intentosFallidos + 1;
+            if (nuevosIntentos >= 3) {
+                jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
+                throw new IllegalArgumentException("El código OTP ha sido invalidado por exceso de intentos.");
+            }
+            throw new IllegalArgumentException("Identificación o usuario no coincide con el código OTP.");
         }
     }
 
@@ -465,196 +501,238 @@ public class AuthService {
      */
     @Transactional(rollbackFor = Exception.class, noRollbackFor = IllegalArgumentException.class)
     public void validarYRestablecerClave(String identificacion, String token, String passwordNueva, String ip, String userAgent) {
-        Integer tenantId = TenantContext.getCurrentTenant();
-        if (tenantId == null) {
-            throw new IllegalStateException("Error de Seguridad: No se puede validar token sin especificar la institucion (X-Tenant-ID).");
-        }
-
-        if (identificacion == null || identificacion.trim().isEmpty()) {
-            throw new IllegalArgumentException("La identificacion o usuario es requerido.");
-        }
         if (token == null || token.trim().isEmpty()) {
             throw new IllegalArgumentException("El token o codigo OTP es requerido.");
+        }
+        if (identificacion == null || identificacion.trim().isEmpty()) {
+            throw new IllegalArgumentException("La identificacion o usuario es requerido.");
         }
         if (passwordNueva == null || passwordNueva.trim().isEmpty()) {
             throw new IllegalArgumentException("La nueva contrasena es requerida.");
         }
 
-        LocalDateTime ahora = LocalDateTime.now();
+        String tokenHash = hashSha256(token);
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            "SELECT id, empresa_id, usuario_admin_id, socio_id, intentos_fallidos, fecha_expiracion FROM tokens_recuperacion WHERE token_hash = ? AND utilizado = false",
+            tokenHash
+        );
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("Token o enlace de restablecimiento invalido o expirado.");
+        }
 
-        // Intentar buscar como Socio primero
-        Optional<Socio> socioOpt = socioRepository.findByIdentificacionAndEmpresaId(identificacion, tenantId);
+        Map<String, Object> tokenRow = rows.get(0);
+        Integer resolvedTenantId = (Integer) tokenRow.get("empresa_id");
+        Integer intentosFallidos = (Integer) tokenRow.get("intentos_fallidos");
+        Long tokenId = ((Number) tokenRow.get("id")).longValue();
+        LocalDateTime fechaExpiracion = ((java.sql.Timestamp) tokenRow.get("fecha_expiracion")).toLocalDateTime();
+
+        TenantContext.setCurrentTenant(resolvedTenantId);
+
+        if (fechaExpiracion.isBefore(LocalDateTime.now())) {
+            jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
+            throw new IllegalArgumentException("Token o enlace de restablecimiento invalido o expirado.");
+        }
+
+        if (intentosFallidos >= 3) {
+            jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
+            throw new IllegalArgumentException("El enlace de restablecimiento ha sido invalidado por exceso de intentos fallidos.");
+        }
+
+        // Intentar buscar como Socio primero (utilizando raw query para saltar filtro de TenantId de Hibernate)
+        Optional<Socio> socioOpt = socioRepository.findByIdentificacionAndEmpresaIdRaw(identificacion, resolvedTenantId);
 
         if (socioOpt.isPresent()) {
             Socio socio = socioOpt.get();
-            TokensRecuperacion tokenRec = tokensRecuperacionRepository
-                    .findFirstBySocioIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(socio.getId(), ahora)
-                    .orElseThrow(() -> new IllegalArgumentException("Token o codigo OTP invalido o expirado."));
-
-            if (tokenRec.getIntentosFallidos() >= 3) {
-                tokenRec.setUtilizado(true);
-                tokensRecuperacionRepository.save(tokenRec);
-                throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
+            Number socioId = (Number) tokenRow.get("socio_id");
+            if (socioId == null || socioId.intValue() != socio.getId()) {
+                // Incrementar intentos fallidos
+                jdbcTemplate.update("UPDATE tokens_recuperacion SET intentos_fallidos = intentos_fallidos + 1 WHERE id = ?", tokenId);
+                int nuevosIntentos = intentosFallidos + 1;
+                if (nuevosIntentos >= 3) {
+                    jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
+                }
+                throw new IllegalArgumentException("Token o codigo OTP invalido.");
             }
 
-            String hashIngresado = hashSha256(token);
-            if (!tokenRec.getTokenHash().equals(hashIngresado)) {
-                tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
-                if (tokenRec.getIntentosFallidos() >= 3) {
-                    tokenRec.setUtilizado(true);
-                }
-                tokensRecuperacionRepository.save(tokenRec);
+            boolean existsCreds = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM socios_credenciales WHERE socio_id = ?",
+                Integer.class,
+                socio.getId()
+            ) > 0;
 
-                LogsAuditoria auditLog = new LogsAuditoria();
-                auditLog.setSocio(socio);
-                auditLog.setAccion("VALIDAR_RECUPERACION_FALLIDO");
-                auditLog.setTablaAfectada("tokens_recuperacion");
-                auditLog.setRegistroId(tokenRec.getId());
-                auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
-                auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
-                auditLog.setValorAnterior(Map.of("intentosFallidos", tokenRec.getIntentosFallidos() - 1));
-                auditLog.setValorNuevo(Map.of("intentosFallidos", tokenRec.getIntentosFallidos()));
-                logsAuditoriaService.registrarLog(auditLog);
-
-                if (tokenRec.getIntentosFallidos() >= 3) {
-                    throw new IllegalArgumentException("El token o codigo OTP ha sido invalidado por exceso de intentos fallidos.");
-                } else {
-                    throw new IllegalArgumentException("Token o codigo OTP invalido.");
-                }
+            String passHash = encryptionService.hashPassword(passwordNueva);
+            if (existsCreds) {
+                jdbcTemplate.update(
+                    "UPDATE socios_credenciales SET password_hash = ?, estado_acceso = 'ACTIVO', intentos_fallidos = 0, bloqueado_hasta = NULL WHERE socio_id = ?",
+                    passHash, socio.getId()
+                );
+            } else {
+                jdbcTemplate.update(
+                    "INSERT INTO socios_credenciales (socio_id, password_hash, estado_acceso, intentos_fallidos) VALUES (?, ?, 'ACTIVO', 0)",
+                    socio.getId(), passHash
+                );
             }
 
-            SociosCredenciales creds = credencialesRepository.findBySocioId(socio.getId())
-                    .orElseGet(() -> {
-                        SociosCredenciales newCreds = new SociosCredenciales();
-                        newCreds.setSocio(socio);
-                        return newCreds;
-                    });
+            jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
 
-            creds.setPasswordHash(encryptionService.hashPassword(passwordNueva));
-            creds.setEstadoAcceso("ACTIVO");
-            creds.setIntentosFallidos(0);
-            creds.setBloqueadoHasta(null);
-            credencialesRepository.save(creds);
-
-            tokenRec.setUtilizado(true);
-            tokensRecuperacionRepository.save(tokenRec);
-
-            LogsAuditoria auditLog = new LogsAuditoria();
-            auditLog.setSocio(socio);
-            auditLog.setAccion("RESTABLECER_CLAVE_EXITOSO");
-            auditLog.setTablaAfectada("socios_credenciales");
-            auditLog.setRegistroId(creds.getId());
-            auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
-            auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
-            auditLog.setValorAnterior(Map.of("estadoAcceso", "BLOQUEADA"));
-            auditLog.setValorNuevo(Map.of("estadoAcceso", "ACTIVO"));
-            logsAuditoriaService.registrarLog(auditLog);
+            String valorAnteriorJson = "{\"estadoAcceso\":\"BLOQUEADA\"}";
+            String valorNuevoJson = "{\"estadoAcceso\":\"ACTIVO\"}";
+            jdbcTemplate.update(
+                "INSERT INTO logs_auditoria (socio_id, accion, tabla_afectada, registro_id, valor_anterior, valor_nuevo, fecha, direccion_ip, dispositivo_info, empresa_id) " +
+                "VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, CURRENT_TIMESTAMP, ?, ?, ?)",
+                socio.getId(),
+                "RESTABLECER_CLAVE_EXITOSO",
+                "socios_credenciales",
+                socio.getId(),
+                valorAnteriorJson,
+                valorNuevoJson,
+                ip != null ? ip : "127.0.0.1",
+                userAgent != null ? userAgent : "Desconocido",
+                resolvedTenantId
+            );
 
         } else {
             // Intentar buscar como UsuarioAdmin (Gerente u otro)
-            UsuariosAdmin admin = adminRepository.findByUsernameAndEmpresaId(identificacion, tenantId)
+            UsuariosAdmin admin = adminRepository.findByUsernameOrIdentificacionRaw(identificacion, resolvedTenantId)
                     .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado con la identificacion o nombre de usuario provisto."));
 
-            TokensRecuperacion tokenRec = tokensRecuperacionRepository
-                    .findFirstByUsuarioAdminIdAndUtilizadoFalseAndFechaExpiracionAfterOrderByCreatedAtDesc(admin.getId(), ahora)
-                    .orElseThrow(() -> new IllegalArgumentException("Token o enlace de restablecimiento invalido o expirado."));
-
-            if (tokenRec.getIntentosFallidos() >= 3) {
-                tokenRec.setUtilizado(true);
-                tokensRecuperacionRepository.save(tokenRec);
-                throw new IllegalArgumentException("El enlace de restablecimiento ha sido invalidado por exceso de intentos fallidos.");
+            Number adminId = (Number) tokenRow.get("usuario_admin_id");
+            if (adminId == null || adminId.intValue() != admin.getId()) {
+                // Incrementar intentos fallidos
+                jdbcTemplate.update("UPDATE tokens_recuperacion SET intentos_fallidos = intentos_fallidos + 1 WHERE id = ?", tokenId);
+                int nuevosIntentos = intentosFallidos + 1;
+                if (nuevosIntentos >= 3) {
+                    jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
+                }
+                throw new IllegalArgumentException("Token o enlace de restablecimiento invalido.");
             }
 
-            String hashIngresado = hashSha256(token);
-            if (!tokenRec.getTokenHash().equals(hashIngresado)) {
-                tokenRec.setIntentosFallidos(tokenRec.getIntentosFallidos() + 1);
-                if (tokenRec.getIntentosFallidos() >= 3) {
-                    tokenRec.setUtilizado(true);
-                }
-                tokensRecuperacionRepository.save(tokenRec);
+            String newPasswordHash = encryptionService.hashPassword(passwordNueva);
+            jdbcTemplate.update(
+                "UPDATE usuarios_admin SET password_hash = ?, cambiar_password_proximo_inicio = ?, estado = ? WHERE id = ?",
+                newPasswordHash, false, "ACTIVO", admin.getId()
+            );
 
-                LogsAuditoria auditLog = new LogsAuditoria();
-                auditLog.setUsuarioAdminId(admin.getId());
-                auditLog.setAccion("VALIDAR_RECUPERACION_ADMIN_FALLIDO");
-                auditLog.setTablaAfectada("tokens_recuperacion");
-                auditLog.setRegistroId(tokenRec.getId());
-                auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
-                auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
-                auditLog.setValorAnterior(Map.of("intentosFallidos", tokenRec.getIntentosFallidos() - 1));
-                auditLog.setValorNuevo(Map.of("intentosFallidos", tokenRec.getIntentosFallidos()));
-                logsAuditoriaService.registrarLog(auditLog);
+            jdbcTemplate.update("UPDATE tokens_recuperacion SET utilizado = true WHERE id = ?", tokenId);
 
-                if (tokenRec.getIntentosFallidos() >= 3) {
-                    throw new IllegalArgumentException("El enlace de restablecimiento ha sido invalidado por exceso de intentos fallidos.");
-                } else {
-                    throw new IllegalArgumentException("Enlace o token invalido.");
-                }
-            }
-
-            admin.setPasswordHash(encryptionService.hashPassword(passwordNueva));
-            admin.setCambiarPasswordProximoInicio(false);
-            adminRepository.save(admin);
-
-            tokenRec.setUtilizado(true);
-            tokensRecuperacionRepository.save(tokenRec);
-
-            LogsAuditoria auditLog = new LogsAuditoria();
-            auditLog.setUsuarioAdminId(admin.getId());
-            auditLog.setAccion("RESTABLECER_CLAVE_ADMIN_EXITOSO");
-            auditLog.setTablaAfectada("usuarios_admin");
-            auditLog.setRegistroId(admin.getId());
-            auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
-            auditLog.setDispositivoInfo(userAgent != null ? userAgent : "Desconocido");
-            auditLog.setValorAnterior(Map.of("cuenta", admin.getUsername()));
-            auditLog.setValorNuevo(Map.of("restablecimiento", "exitoso"));
-            logsAuditoriaService.registrarLog(auditLog);
+            String valorAnteriorJson = String.format("{\"username\":\"%s\"}", admin.getUsername());
+            String valorNuevoJson = "{\"restablecimiento\":\"exitoso\"}";
+            jdbcTemplate.update(
+                "INSERT INTO logs_auditoria (usuario_admin_id, accion, tabla_afectada, registro_id, valor_anterior, valor_nuevo, fecha, direccion_ip, dispositivo_info, empresa_id) " +
+                "VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, CURRENT_TIMESTAMP, ?, ?, ?)",
+                admin.getId(),
+                "RESTABLECER_CLAVE_ADMIN_EXITOSO",
+                "usuarios_admin",
+                admin.getId(),
+                valorAnteriorJson,
+                valorNuevoJson,
+                ip != null ? ip : "127.0.0.1",
+                userAgent != null ? userAgent : "Desconocido",
+                resolvedTenantId
+            );
         }
     }
 
-    /**
-     * Flujo Asistido (SaaS Manager): Genera enlace de restablecimiento seguro para el Gerente General.
-     */
     @Transactional(rollbackFor = Exception.class)
     public String enviarEnlaceRestablecimientoAdmin(Integer tenantId, String ip, String userAgent) {
         // Find Gerente General
-        UsuariosAdmin gerente = adminRepository.findGerenteGeneralRaw(tenantId)
-                .orElseThrow(() -> new IllegalArgumentException("No se encontró al Gerente General para este tenant."));
+        UsuariosAdmin gerente;
+        Optional<UsuariosAdmin> gerenteOpt = adminRepository.findGerenteGeneralRaw(tenantId);
+        if (gerenteOpt.isPresent()) {
+            gerente = gerenteOpt.get();
+        } else {
+            // Self-healing: Re-create the missing admin from the Empresa details!
+            List<Map<String, Object>> empresaRows = jdbcTemplate.queryForList(
+                "SELECT razon_social, correo_gerente, cedula_representante, representante_legal FROM empresas WHERE id = ?",
+                tenantId
+            );
+            if (empresaRows.isEmpty()) {
+                throw new IllegalArgumentException("No se encontró la cooperativa especificada.");
+            }
+            Map<String, Object> empRow = empresaRows.get(0);
+            String correoGerente = (String) empRow.get("correo_gerente");
+            String cedulaRepresentante = (String) empRow.get("cedula_representante");
+            String representanteLegal = (String) empRow.get("representante_legal");
+
+            String defaultUsername = "coopro";
+            String passwordHash = encryptionService.hashPassword(UUID.randomUUID().toString());
+
+            Integer adminId = jdbcTemplate.queryForObject(
+                "INSERT INTO usuarios_admin (empresa_id, username, password_hash, nombres_completos, correo, rol, estado, identificacion, cambiar_password_proximo_inicio, limite_transaccion_max, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, 'GERENTE_GENERAL', 'ACTIVO', ?, true, 0.00, CURRENT_TIMESTAMP) RETURNING id",
+                Integer.class,
+                tenantId, defaultUsername, passwordHash,
+                representanteLegal, correoGerente, cedulaRepresentante
+            );
+
+            gerente = new UsuariosAdmin();
+            gerente.setId(adminId);
+            gerente.setUsername(defaultUsername);
+            gerente.setCorreo(correoGerente);
+            gerente.setNombresCompletos(representanteLegal);
+            gerente.setIdentificacion(cedulaRepresentante);
+        }
 
         // Invalidar contraseña actual del gerente inmediatamente por seguridad
-        gerente.setPasswordHash(UUID.randomUUID().toString());
-        adminRepository.save(gerente);
+        String newPassHash = UUID.randomUUID().toString();
+        jdbcTemplate.update(
+            "UPDATE usuarios_admin SET password_hash = ? WHERE id = ?",
+            newPassHash, gerente.getId()
+        );
 
         // Generate Token
         String tokenRaw = UUID.randomUUID().toString();
         String tokenHash = hashSha256(tokenRaw);
 
-        // Guardar en Base de Datos
-        TokensRecuperacion tokenRec = new TokensRecuperacion();
-        tokenRec.setUsuarioAdmin(gerente);
-        tokenRec.setTokenHash(tokenHash);
-        tokenRec.setCanal("CORREO");
-        tokenRec.setFechaExpiracion(LocalDateTime.now().plusHours(1)); // Damos 1 hora para el Admin
-        tokenRec.setUtilizado(false);
-        tokenRec.setIntentosFallidos(0);
-        tokensRecuperacionRepository.save(tokenRec);
+        // Guardar en Base de Datos usando JdbcTemplate
+        LocalDateTime exp = LocalDateTime.now().plusMinutes(15);
+        Integer tokenRecId = jdbcTemplate.queryForObject(
+            "INSERT INTO tokens_recuperacion (usuario_admin_id, token_hash, canal, fecha_expiracion, utilizado, intentos_fallidos, empresa_id) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            Integer.class,
+            gerente.getId(), tokenHash, "CORREO", exp, false, 0, tenantId
+        );
 
         // Enviar notificación simulando un envío seguro
         String link = "http://localhost:5173/recuperar-clave?token=" + tokenRaw + "&identificacion=" + gerente.getUsername();
         
         notificacionService.enviarRecuperacionCorreoAdmin(gerente, link);
 
-        // Registro de Auditoria
-        LogsAuditoria auditLog = new LogsAuditoria();
-        auditLog.setUsuarioAdminId(gerente.getId());
-        auditLog.setAccion("ENVIAR_ENLACE_RESTABLECIMIENTO_ADMIN_SaaS");
-        auditLog.setTablaAfectada("tokens_recuperacion");
-        auditLog.setRegistroId(tokenRec.getId());
-        auditLog.setDireccionIp(ip != null ? ip : "127.0.0.1");
-        auditLog.setDispositivoInfo(userAgent != null ? userAgent : "SaaS Manager");
-        auditLog.setValorAnterior(Map.of("solicitud", "saas_manager"));
-        auditLog.setValorNuevo(Map.of("tokenHash", tokenHash, "expira", tokenRec.getFechaExpiracion().toString()));
-        logsAuditoriaService.registrarLog(auditLog);
+        // Registro de Auditoria usando JdbcTemplate
+        String valorAnteriorJson = "{\"solicitud\":\"saas_manager\"}";
+        String valorNuevoJson = String.format("{\"tokenHash\":\"%s\",\"expira\":\"%s\"}", tokenHash, exp.toString());
+
+        jdbcTemplate.update(
+            "INSERT INTO logs_auditoria (usuario_admin_id, accion, tabla_afectada, registro_id, valor_anterior, valor_nuevo, fecha, direccion_ip, dispositivo_info, empresa_id) " +
+            "VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, CURRENT_TIMESTAMP, ?, ?, ?)",
+            gerente.getId(),
+            "ENVIAR_ENLACE_RESTABLECIMIENTO_ADMIN_SaaS",
+            "tokens_recuperacion",
+            tokenRecId,
+            valorAnteriorJson,
+            valorNuevoJson,
+            ip != null ? ip : "127.0.0.1",
+            userAgent != null ? userAgent : "SaaS Manager",
+            tenantId
+        );
 
         return enmascararCorreo(gerente.getCorreo());
+    }
+
+    public List<Map<String, Object>> getActiveTenants() {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            "SELECT id, ruc, razon_social, nombre_comercial FROM empresas WHERE estado = 'ACTIVO'"
+        );
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> map = new java.util.HashMap<>();
+            map.put("id", ((Number) row.get("id")).intValue());
+            map.put("ruc", (String) row.get("ruc"));
+            String nombreComercial = (String) row.get("nombre_comercial");
+            String razonSocial = (String) row.get("razon_social");
+            map.put("name", nombreComercial != null && !nombreComercial.trim().isEmpty() ? nombreComercial : razonSocial);
+            result.add(map);
+        }
+        return result;
     }
 }

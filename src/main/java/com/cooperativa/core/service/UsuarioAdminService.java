@@ -73,9 +73,14 @@ public class UsuarioAdminService {
             throw new IllegalArgumentException("Error: La cédula ingresada '" + usuario.getIdentificacion() + "' no es una cédula ecuatoriana válida.");
         }
 
-        // Regla: Cédula única en la cooperativa
+        // Regla: Nombre de usuario único en la cooperativa
         if (usuarioRepository.findByUsernameAndEmpresaId(usuario.getUsername(), tenantId).isPresent()) {
             throw new IllegalStateException("Error: El nombre de usuario '" + usuario.getUsername() + "' ya esta en uso.");
+        }
+
+        // Regla: Identificación única en la cooperativa
+        if (usuarioRepository.existsByIdentificacionAndEmpresaId(usuario.getIdentificacion(), tenantId)) {
+            throw new IllegalStateException("Error: La identificación '" + usuario.getIdentificacion() + "' ya esta registrada en esta cooperativa.");
         }
 
         // Encriptar la contrasena con BCrypt antes de guardar en la base de datos

@@ -65,6 +65,25 @@ public class SuperAdminController {
         try {
             Empresa nuevaEmpresa = onboardingService.onboard(requestDTO);
             return ResponseEntity.status(HttpStatus.CREATED).body(nuevaEmpresa);
+        } catch (com.cooperativa.core.exception.EmpresaDuplicadaException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            String msg = "Error: Conflicto de integridad de datos en el sistema.";
+            if (e.getMostSpecificCause() != null && e.getMostSpecificCause().getMessage() != null) {
+                String causeMsg = e.getMostSpecificCause().getMessage().toLowerCase();
+                if (causeMsg.contains("ruc")) {
+                    msg = "Error: Ya existe una empresa registrada con ese RUC.";
+                } else if (causeMsg.contains("codigo_seps")) {
+                    msg = "Error: Ya existe una empresa registrada con ese código SEPS.";
+                } else if (causeMsg.contains("identificacion")) {
+                    msg = "Error: La identificación (cédula) del representante ya está registrada para otro administrador.";
+                } else if (causeMsg.contains("username") || causeMsg.contains("uk_empresa_username")) {
+                    msg = "Error: El nombre de usuario del administrador ya está registrado.";
+                } else if (causeMsg.contains("correo")) {
+                    msg = "Error: El correo electrónico del representante ya está registrado para otro administrador.";
+                }
+            }
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(msg);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         } catch (IllegalStateException e) {
@@ -73,6 +92,18 @@ public class SuperAdminController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Error interno durante el proceso de onboarding: " + e.getMessage());
         }
+    }
+
+    @GetMapping("/tenants/check-ruc")
+    public ResponseEntity<?> verificarRuc(@RequestParam String ruc) {
+        boolean exists = empresaRepository.existsByRucRaw(ruc);
+        return ResponseEntity.ok(java.util.Map.of("exists", exists));
+    }
+
+    @GetMapping("/tenants/check-seps")
+    public ResponseEntity<?> verificarCodigoSeps(@RequestParam String codigoSeps) {
+        boolean exists = empresaRepository.existsByCodigoSepsRaw(codigoSeps);
+        return ResponseEntity.ok(java.util.Map.of("exists", exists));
     }
 
     @GetMapping("/tenants")
@@ -166,8 +197,10 @@ public class SuperAdminController {
             dto.setSiglas(empresa.getSiglas());
             
             Optional<UsuariosAdmin> gerenteOpt = usuarioAdminRepository.findGerenteGeneralRaw(id);
-            if (gerenteOpt.isPresent()) {
+            if (gerenteOpt.isPresent() && gerenteOpt.get().getCorreo() != null && !gerenteOpt.get().getCorreo().trim().isEmpty()) {
                 dto.setCorreoGerente(enmascararCorreo(gerenteOpt.get().getCorreo()));
+            } else if (empresa.getCorreoGerente() != null && !empresa.getCorreoGerente().trim().isEmpty()) {
+                dto.setCorreoGerente(enmascararCorreo(empresa.getCorreoGerente()));
             } else {
                 dto.setCorreoGerente("No registrado");
             }

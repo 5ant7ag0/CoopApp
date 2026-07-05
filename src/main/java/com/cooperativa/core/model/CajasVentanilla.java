@@ -8,14 +8,17 @@ import java.time.LocalDateTime;
 @Getter
 @Setter
 @Entity
-@Table(name = "cajas_ventanilla")
+@Table(
+    name = "cajas_ventanilla",
+    uniqueConstraints = @UniqueConstraint(columnNames = {"empresa_id", "codigo"})
+)
 public class CajasVentanilla extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    @Column(nullable = false, unique = true, length = 20)
+    @Column(nullable = false, length = 20)
     private String codigo;
 
     @Column(nullable = false, length = 50)

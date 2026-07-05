@@ -19,7 +19,7 @@ public class Empresa {
     private Integer id;
 
     @NotBlank(message = "El RUC es obligatorio")
-    @Pattern(regexp = "^[0-9]{13}$", message = "El RUC debe tener 13 dígitos numéricos")
+    @Pattern(regexp = "^[0-9]{10}001$", message = "El RUC debe tener 13 dígitos numéricos y terminar en 001")
     @Column(nullable = false, unique = true, length = 13)
     private String ruc;
 
@@ -71,6 +71,7 @@ public class Empresa {
     @Column(length = 30)
     private String siglas;
 
+    @NotBlank(message = "El segmento SEPS es obligatorio")
     @Column(name = "segmento_seps", length = 20)
     private String segmentoSeps;
 
@@ -82,7 +83,8 @@ public class Empresa {
     @Column(name = "correo_institucional", length = 100)
     private String correoInstitucional;
 
-    @Email(message = "El formato del correo del gerente es inválido")
+    @NotBlank(message = "El correo del representante es obligatorio")
+    @Email(message = "El formato del correo del representante es inválido")
     @Column(name = "correo_gerente", length = 100)
     private String correoGerente;
 

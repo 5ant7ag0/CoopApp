@@ -3,6 +3,8 @@ package com.cooperativa.core.service;
 import com.cooperativa.core.model.Socio;
 import com.cooperativa.core.model.UsuariosAdmin;
 import com.cooperativa.core.util.EmailTemplateBuilder;
+import com.cooperativa.core.repository.EmpresaRepository;
+import com.cooperativa.core.model.Empresa;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,18 @@ public class NotificacionService {
     @Autowired
     private EmailTemplateBuilder templateBuilder;
 
+    @Autowired
+    private EmpresaRepository empresaRepository;
+
+    private String obtenerNombreCoop(Integer empresaId) {
+        if (empresaId == null) {
+            return "COOPERATIVA DE AHORRO Y CRÉDITO";
+        }
+        return empresaRepository.findById(empresaId)
+                .map(Empresa::getNombreComercial)
+                .orElse("COOPERATIVA DE AHORRO Y CRÉDITO");
+    }
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_2)
             .connectTimeout(Duration.ofSeconds(10))
@@ -51,9 +65,10 @@ public class NotificacionService {
         }
         
         String notaPie = "Este " + (isOtp ? "código" : "enlace") + " es de uso único y expirará en 15 minutos.";
-        String htmlBody = templateBuilder.buildCorporateEmail(titulo, mensaje, cuerpo, notaPie);
+        String coopName = obtenerNombreCoop(socio.getEmpresaId());
+        String htmlBody = templateBuilder.buildCorporateEmail(titulo, mensaje, cuerpo, notaPie, coopName);
 
-        enviarCorreoResend(socio.getCorreo(), "Restablecimiento de Contraseña Digital - CoopApp", htmlBody);
+        enviarCorreoResend(socio.getCorreo(), "Restablecimiento de Contraseña Digital - " + coopName, htmlBody);
     }
 
     private void enviarCorreoResend(String to, String subject, String htmlContent) {
@@ -93,34 +108,44 @@ public class NotificacionService {
     }
 
     public void enviarRecuperacionCorreoAdmin(UsuariosAdmin admin, String link) {
+        boolean isSaaS = admin.getEmpresaId() == null || admin.getEmpresaId() == 1;
         String titulo = "Restablecimiento de Contraseña (Administrador)";
         String mensaje = "Estimado/a " + admin.getNombresCompletos() + ", hemos recibido una solicitud para restablecer su contraseña de administrador.";
         
         String cuerpo = templateBuilder.buildLinkButton(link, "Crear Nueva Contraseña");
+        String notaPie = "Este enlace es de uso único y expirará en 15 minutos. Si usted no solicitó esto, por favor ignore este correo.";
         
-        String notaPie = "Este enlace es de uso único y expirará en 1 hora. Si usted no solicitó esto, por favor ignore este correo.";
-        String htmlBody = templateBuilder.buildCorporateEmail(titulo, mensaje, cuerpo, notaPie);
+        String htmlBody;
+        String subject;
+        if (isSaaS) {
+            htmlBody = templateBuilder.buildSaaSEmail(titulo, mensaje, cuerpo, notaPie);
+            subject = "Restablecimiento de Contraseña Administrativa - SAAS MANAGER";
+        } else {
+            String coopName = obtenerNombreCoop(admin.getEmpresaId());
+            htmlBody = templateBuilder.buildCorporateEmail(titulo, mensaje, cuerpo, notaPie, coopName);
+            subject = "Restablecimiento de Contraseña Administrativa - " + coopName;
+        }
 
-        enviarCorreoResend(admin.getCorreo(), "Restablecimiento de Contraseña Administrativa - CoopApp", htmlBody);
+        enviarCorreoResend(admin.getCorreo(), subject, htmlBody);
     }
 
     /**
      * Envía las credenciales de acceso inicial a los dueños de nuevos Tenants (Cooperativas)
      */
-    public void enviarCredencialesSaaS(String to, String razonSocial, String usuario, String password) {
+    public void enviarCredencialesSaaS(String to, String razonSocial, String usuario, String linkActivacion) {
         String titulo = "¡Bienvenido al Core Bancario SaaS!";
-        String mensaje = "Estimado equipo de " + razonSocial + ", su instancia ha sido creada exitosamente. A continuación sus credenciales de acceso como Administrador Principal:";
+        String mensaje = "Estimado/a Representante de " + razonSocial + ", su instancia de cooperativa ha sido creada exitosamente. A continuación su nombre de usuario de acceso:";
         
         String cuerpo = "<div style=\"background-color:#f8fafc; padding:15px; border-radius:10px; text-align:center;\">"
-                      + "<p style=\"margin:0; font-size:14px; color:#475569;\"><strong>Usuario:</strong> " + usuario + "</p>"
-                      + "<p style=\"margin:8px 0 0; font-size:14px; color:#475569;\"><strong>Contraseña Temporal:</strong> " + password + "</p>"
+                      + "<p style=\"margin:0; font-size:14px; color:#475569;\"><strong>Usuario Administrador:</strong> " + usuario + "</p>"
                       + "</div><br/>"
-                      + templateBuilder.buildLinkButton("http://localhost:5173/login", "Acceder al Panel de Control");
+                      + "<p style=\"font-size:13px; color:#475569;\">Por favor, haga clic en el botón de abajo para activar su cuenta y configurar su contraseña digital de seguridad:</p>"
+                      + templateBuilder.buildLinkButton(linkActivacion, "Activar Cuenta y Establecer Clave");
         
-        String notaPie = "Le recomendamos encarecidamente cambiar su contraseña al iniciar sesión por primera vez.";
-        String htmlBody = templateBuilder.buildCorporateEmail(titulo, mensaje, cuerpo, notaPie);
+        String notaPie = "Este enlace de activación es de un solo uso y expirará en 15 minutos.";
+        String htmlBody = templateBuilder.buildSaaSEmail(titulo, mensaje, cuerpo, notaPie);
 
-        enviarCorreoResend(to, "Credenciales de Acceso SaaS - " + razonSocial, htmlBody);
+        enviarCorreoResend(to, "Bienvenida y Activación de Cuenta SaaS - " + razonSocial, htmlBody);
     }
 
     /**

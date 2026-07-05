@@ -8,7 +8,8 @@ import lombok.Setter;
 @Setter
 @Entity
 @Table(name = "usuarios_admin", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"empresa_id", "username"})
+        @UniqueConstraint(columnNames = {"empresa_id", "username"}),
+        @UniqueConstraint(columnNames = {"empresa_id", "identificacion"})
 })
 public class UsuariosAdmin extends BaseEntity {
 
@@ -35,7 +36,7 @@ public class UsuariosAdmin extends BaseEntity {
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVO"; // 'ACTIVO' o 'INACTIVO'
 
-    @Column(nullable = false, unique = true, length = 20)
+    @Column(nullable = false, length = 20)
     private String identificacion;
 
     @Column(name = "foto_perfil_url", columnDefinition = "TEXT")

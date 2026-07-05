@@ -236,4 +236,18 @@ public class AuthController {
             return ResponseEntity.internalServerError().body("Error interno al restablecer la contraseña: " + e.getMessage());
         }
     }
+
+    /**
+     * Endpoint público para listar las cooperativas activas.
+     * URL: GET http://localhost:8080/api/v1/auth/tenants
+     */
+    @GetMapping("/tenants")
+    @PublicEndpoint
+    public ResponseEntity<?> getPublicTenants() {
+        try {
+            return ResponseEntity.ok(authService.getActiveTenants());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error al listar cooperativas: " + e.getMessage());
+        }
+    }
 }
