@@ -12,6 +12,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.web.multipart.MultipartFile;
+
 
 @Service
 public class UsuarioAdminService {
@@ -27,6 +29,10 @@ public class UsuarioAdminService {
 
     @Autowired
     private com.cooperativa.core.repository.EmpresaRepository empresaRepository;
+
+    @Autowired
+    private S3Service s3Service;
+
 
     private boolean validarCedulaEcuatoriana(String ced) {
         if (ced == null || ced.length() != 10) return false;
@@ -162,5 +168,35 @@ public class UsuarioAdminService {
 
         usuario.setEstado("INACTIVO");
         usuarioRepository.save(usuario);
+    }
+
+    @Transactional
+    public String guardarAvatar(Integer id, MultipartFile file) throws Exception {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        UsuariosAdmin usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado."));
+
+        if (!usuario.getEmpresaId().equals(tenantId)) {
+            throw new SecurityException("Acceso denegado: El usuario no pertenece a esta cooperativa.");
+        }
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("Error: El archivo provisto está vacío.");
+        }
+
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new IllegalArgumentException("Error: El tamaño del archivo excede el límite permitido de 5MB.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || (!contentType.equals("image/jpeg") && !contentType.equals("image/png") && !contentType.equals("image/webp"))) {
+            throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan imágenes JPG, PNG y WEBP.");
+        }
+
+        String avatarUrl = s3Service.subirArchivo(file, "perfiles", "admin_" + id);
+        usuario.setFotoPerfilUrl(avatarUrl);
+        usuarioRepository.save(usuario);
+
+        return avatarUrl;
     }
 }

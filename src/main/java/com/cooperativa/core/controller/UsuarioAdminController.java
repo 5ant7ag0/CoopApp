@@ -12,6 +12,8 @@ import org.springframework.format.annotation.DateTimeFormat;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.multipart.MultipartFile;
+
 
 import com.cooperativa.core.security.RequiresRoles;
 
@@ -118,6 +120,35 @@ public class UsuarioAdminController {
         try {
             usuarioService.cambiarClaveProximoInicio(username, passwordNueva);
             return ResponseEntity.ok("Contraseña actualizada con éxito.");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/{id}/avatar")
+    @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "OFICIAL_DE_CREDITO", "CAJERO", "CONTADOR"})
+    public ResponseEntity<?> subirAvatar(
+            @PathVariable Integer id,
+            @RequestParam("file") MultipartFile file,
+            jakarta.servlet.http.HttpServletRequest request) {
+        
+        String authRol = (String) request.getAttribute("authRol");
+        String authUsername = (String) request.getAttribute("authUsername");
+        
+        // Un administrador solo puede cambiarse su propio avatar, a menos que sea Gerente General o Super Admin
+        if (!"GERENTE_GENERAL".equals(authRol) && !"SUPER_ADMIN_SAAS".equals(authRol)) {
+            UsuariosAdmin currentUser = usuarioService.obtenerTodos().stream()
+                    .filter(u -> u.getUsername().equals(authUsername))
+                    .findFirst()
+                    .orElse(null);
+            if (currentUser == null || !currentUser.getId().equals(id)) {
+                return ResponseEntity.status(403).body("Acceso denegado: Solo puedes cambiar tu propio avatar.");
+            }
+        }
+        
+        try {
+            String avatarUrl = usuarioService.guardarAvatar(id, file);
+            return ResponseEntity.ok(Map.of("avatarUrl", avatarUrl));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
