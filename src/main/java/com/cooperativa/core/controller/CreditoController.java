@@ -27,7 +27,7 @@ public class CreditoController {
     // ==========================================
 
     @PostMapping("/solicitar")
-    @RequiresRoles({"OFICIAL_DE_CREDITO", "SOCIO"})
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "SOCIO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> solicitarCredito(
             @RequestBody Credito credito,
             @RequestParam(value = "presencial", required = false, defaultValue = "false") boolean presencial,
