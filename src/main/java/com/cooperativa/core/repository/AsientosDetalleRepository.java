@@ -42,8 +42,8 @@ public interface AsientosDetalleRepository extends JpaRepository<AsientosDetalle
 
     // Obtiene la suma de débitos y créditos del periodo completo
     @Query("SELECT " +
-           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0 END), " +
-           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0 END) " +
+           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0.0 END), " +
+           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0.0 END) " +
            "FROM AsientosDetalle d JOIN d.asientoCabecera c " +
            "WHERE d.planCuentas.id = :cuentaId " +
            "AND c.empresaId = :empresaId " +
@@ -58,8 +58,8 @@ public interface AsientosDetalleRepository extends JpaRepository<AsientosDetalle
 
     // Obtiene la suma de débitos y créditos acumulados previos a un registro/fecha de corte dentro del periodo
     @Query("SELECT " +
-           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0 END), " +
-           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0 END) " +
+           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0.0 END), " +
+           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0.0 END) " +
            "FROM AsientosDetalle d JOIN d.asientoCabecera c " +
            "WHERE d.planCuentas.id = :cuentaId " +
            "AND c.empresaId = :empresaId " +
@@ -78,8 +78,8 @@ public interface AsientosDetalleRepository extends JpaRepository<AsientosDetalle
 
     // Sumariza débitos y créditos agrupados por cuenta en un rango de fechas
     @Query("SELECT d.planCuentas.id, " +
-           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0 END), " +
-           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0 END) " +
+           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0.0 END), " +
+           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0.0 END) " +
            "FROM AsientosDetalle d JOIN d.asientoCabecera c " +
            "WHERE c.empresaId = :empresaId " +
            "AND c.fechaAsiento >= :desde " +
@@ -93,8 +93,8 @@ public interface AsientosDetalleRepository extends JpaRepository<AsientosDetalle
 
     // Sumariza débitos y créditos agrupados por cuenta acumulados hasta una fecha de corte
     @Query("SELECT d.planCuentas.id, " +
-           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0 END), " +
-           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0 END) " +
+           "SUM(CASE WHEN d.tipoAsiento = 'DEBITO' THEN d.monto ELSE 0.0 END), " +
+           "SUM(CASE WHEN d.tipoAsiento = 'CREDITO' THEN d.monto ELSE 0.0 END) " +
            "FROM AsientosDetalle d JOIN d.asientoCabecera c " +
            "WHERE c.empresaId = :empresaId " +
            "AND c.fechaAsiento <= :corte " +
