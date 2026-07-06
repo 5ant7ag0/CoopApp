@@ -256,8 +256,8 @@ public class ContabilidadService {
         List<Object[]> sumsPeriod = detalleRepository.sumMovementsPeriod(cuentaId, tenantId, desde, hasta);
         if (sumsPeriod != null && !sumsPeriod.isEmpty() && sumsPeriod.get(0) != null) {
             Object[] row = sumsPeriod.get(0);
-            if (row[0] != null) totalDebitoPeriodo = (BigDecimal) row[0];
-            if (row[1] != null) totalCreditoPeriodo = (BigDecimal) row[1];
+            if (row[0] != null) totalDebitoPeriodo = toBigDecimal(row[0]);
+            if (row[1] != null) totalCreditoPeriodo = toBigDecimal(row[1]);
         }
 
         // 3. Saldo Final del Periodo Completo
@@ -300,8 +300,8 @@ public class ContabilidadService {
             BigDecimal credPrev = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             if (sumsBefore != null && !sumsBefore.isEmpty() && sumsBefore.get(0) != null) {
                 Object[] row = sumsBefore.get(0);
-                if (row[0] != null) debPrev = (BigDecimal) row[0];
-                if (row[1] != null) credPrev = (BigDecimal) row[1];
+                if (row[0] != null) debPrev = toBigDecimal(row[0]);
+                if (row[1] != null) credPrev = toBigDecimal(row[1]);
             }
             if (esDeudora) {
                 saldoDeArrastre = saldoInicial.add(debPrev).subtract(credPrev);
@@ -535,8 +535,8 @@ public class ContabilidadService {
         java.util.Map<Integer, BigDecimal[]> rawBalancesMap = new java.util.HashMap<>();
         for (Object[] row : rawSums) {
             Integer cuentaId = (Integer) row[0];
-            BigDecimal debe = row[1] != null ? (BigDecimal) row[1] : BigDecimal.ZERO;
-            BigDecimal haber = row[2] != null ? (BigDecimal) row[2] : BigDecimal.ZERO;
+            BigDecimal debe = toBigDecimal(row[1]);
+            BigDecimal haber = toBigDecimal(row[2]);
             rawBalancesMap.put(cuentaId, new BigDecimal[]{debe, haber});
         }
 
@@ -844,8 +844,8 @@ public class ContabilidadService {
         // 5. Liquidar cada cuenta de ingresos y gastos
         for (Object[] row : rawBalances) {
             Integer cuentaId = (Integer) row[0];
-            BigDecimal debeSum = row[1] != null ? (BigDecimal) row[1] : BigDecimal.ZERO;
-            BigDecimal haberSum = row[2] != null ? (BigDecimal) row[2] : BigDecimal.ZERO;
+            BigDecimal debeSum = toBigDecimal(row[1]);
+            BigDecimal haberSum = toBigDecimal(row[2]);
 
             PlanCuentas cuenta = planCuentasRepository.findById(cuentaId)
                     .orElseThrow(() -> new IllegalStateException("Cuenta contable no encontrada: " + cuentaId));
@@ -926,5 +926,11 @@ public class ContabilidadService {
         cierre.setUsuarioAdminId(usuario.getId());
 
         return cierreAnualRepository.save(cierre);
+    }
+
+    private BigDecimal toBigDecimal(Object val) {
+        if (val == null) return BigDecimal.ZERO;
+        if (val instanceof BigDecimal) return (BigDecimal) val;
+        return BigDecimal.valueOf(((Number) val).doubleValue());
     }
 }
