@@ -700,7 +700,7 @@ EXECUTE FUNCTION fn_validar_partida_doble();
 
 -- 1. Insertar la Cooperativa de Prueba (Tenant ID = 1)
 INSERT INTO empresas (id, ruc, razon_social, nombre_comercial, codigo_seps, representante_legal, cedula_representante, moneda, estado)
-VALUES (1, '1791234567001', 'Cooperativa de Ahorro y Crédito ITQ', 'CAC ITQ', 'SEPS-REG-2026-001', 'Santiago Administrador', '1710034065', 'USD', 'ACTIVO');
+VALUES (1, '1791234567001', 'Cooperativa de Ahorro y Crédito ITQ', 'Cooperativa de Ahorro y Crédito ITQ', 'SEPS-REG-2026-001', 'Santiago Administrador', '1710034065', 'USD', 'ACTIVO');
 
 -- 2. Insertar un Usuario Administrativo (Contraseña hasheada de 'CoopSF2026!')
 INSERT INTO usuarios_admin (id, empresa_id, username, password_hash, nombres_completos, correo, rol, estado)
