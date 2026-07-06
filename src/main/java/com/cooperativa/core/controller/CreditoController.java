@@ -12,6 +12,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import com.cooperativa.core.security.RequiresRoles;
+import org.springframework.web.multipart.MultipartFile;
+
 
 @RestController
 @RequestMapping("/creditos")
@@ -224,6 +226,20 @@ public class CreditoController {
 
         try {
             return ResponseEntity.ok(creditoService.rechazarCredito(id, motivo.trim()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/{id}/pagare")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CAJERO"})
+    public ResponseEntity<?> subirPagare(
+            @PathVariable Integer id,
+            @RequestParam("file") MultipartFile file,
+            HttpServletRequest request) {
+        try {
+            String url = creditoService.guardarPagare(id, file);
+            return ResponseEntity.ok(java.util.Map.of("pagareUrl", url));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

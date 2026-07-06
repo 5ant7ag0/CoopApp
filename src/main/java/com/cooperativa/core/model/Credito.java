@@ -70,7 +70,15 @@ public class Credito extends AuditableEntity {
     @Column(name = "motivo_rechazo", columnDefinition = "TEXT")
     private String motivoRechazo;
 
+    @Column(name = "pagare_url", length = 500)
+    private String pagareUrl;
+
     @OneToMany(mappedBy = "credito", fetch = FetchType.LAZY)
     @OrderBy("numeroCuota ASC")
     private java.util.List<CuotasAmortizacion> cuotas;
+
+    @com.fasterxml.jackson.annotation.JsonProperty("fechaSolicitud")
+    public LocalDateTime getFechaSolicitud() {
+        return this.getCreatedAt();
+    }
 }

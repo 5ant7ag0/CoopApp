@@ -25,6 +25,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.multipart.MultipartFile;
+
 
 @Service
 public class CreditoService {
@@ -62,6 +64,10 @@ public class CreditoService {
 
     @Autowired
     private UsuarioAdminRepository usuarioAdminRepository;
+
+    @Autowired
+    private S3Service s3Service;
+
 
     @Autowired
     private CajaDiariaService cajaDiariaService;
@@ -821,5 +827,35 @@ public class CreditoService {
             }
         });
         return creditos;
+    }
+
+    @Transactional
+    public String guardarPagare(Integer id, MultipartFile file) throws Exception {
+        Integer tenantId = TenantContext.getCurrentTenant();
+        Credito credito = creditoRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Crédito no encontrado."));
+
+        if (!credito.getEmpresaId().equals(tenantId)) {
+            throw new SecurityException("Acceso denegado: El crédito no pertenece a esta cooperativa.");
+        }
+
+        if (file.isEmpty()) {
+            throw new IllegalArgumentException("Error: El archivo del pagaré está vacío.");
+        }
+
+        if (file.getSize() > 10 * 1024 * 1024) { // Max 10MB for PDFs/scans
+            throw new IllegalArgumentException("Error: El tamaño del archivo excede el límite de 10MB.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || (!contentType.equals("application/pdf") && !contentType.equals("image/jpeg") && !contentType.equals("image/png"))) {
+            throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan PDFs, JPG y PNG.");
+        }
+
+        String url = s3Service.subirArchivo(file, "pagares", "pagare_" + id);
+        credito.setPagareUrl(url);
+        creditoRepository.save(credito);
+
+        return url;
     }
 }
