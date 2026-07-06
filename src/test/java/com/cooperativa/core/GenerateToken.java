@@ -1,11 +1,11 @@
-import com.cooperativa.core.security.JwtUtil;
+package com.cooperativa.core;
+
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 public class GenerateToken {
     public static void main(String[] args) {
-        JwtUtil jwtUtil = new JwtUtil();
-        // Just calling a test method or we can't because it's a Spring component?
-        // It's just a simple class:
-        // @Value("${jwt.secret:default-secret-key-very-long-for-hs256}")
-        // String token = jwtUtil.generateToken("superadmin_frixon", "SUPER_ADMIN_SAAS", 1);
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+        String hash = "$2a$10$.mUVoUfWa9YO757.5gNMbOpqYUIYqFvL76fHcny7vbgWA3EPcIMKq";
+        System.out.println("Match CoopSF2026!: " + encoder.matches("CoopSF2026!", hash));
     }
 }

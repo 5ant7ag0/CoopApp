@@ -29,9 +29,14 @@ public class CreditoController {
     @RequiresRoles({"OFICIAL_DE_CREDITO", "SOCIO"})
     public ResponseEntity<?> solicitarCredito(
             @RequestBody Credito credito,
-            @RequestParam(value = "presencial", required = false, defaultValue = "false") boolean presencial) {
+            @RequestParam(value = "presencial", required = false, defaultValue = "false") boolean presencial,
+            HttpServletRequest request) {
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
         try {
-            return ResponseEntity.ok(creditoService.crearSolicitud(credito, presencial));
+            return ResponseEntity.ok(creditoService.crearSolicitud(credito, presencial, username, rol));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

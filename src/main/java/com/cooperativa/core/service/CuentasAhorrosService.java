@@ -75,6 +75,10 @@ public class CuentasAhorrosService {
     @Autowired
     private EmpresaService empresaService;
 
+    @Autowired
+    @org.springframework.context.annotation.Lazy
+    private CuentasAhorrosService self;
+
     // CREAR UNA NUEVA CUENTA DE AHORROS
     @Transactional(rollbackFor = Exception.class)
     public CuentasAhorros crearCuenta(CuentasAhorrosRequestDTO dto) {
@@ -674,6 +678,9 @@ public class CuentasAhorrosService {
         cajaDiariaService.validarCajaAperturada(cajero.getId(), tenantId);
 
         BigDecimal monto = dto.getMonto().setScale(2, RoundingMode.HALF_UP);
+        if (monto.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Error Financiero: El monto de depósito debe ser mayor a cero.");
+        }
 
         // Control UAFE/SEPS: Declaración de Origen de Fondos obligatoria para montos mayores a $10,000 USD
         BigDecimal limiteUafe = new BigDecimal("10000.00");
@@ -804,6 +811,9 @@ public class CuentasAhorrosService {
         cajaDiariaService.validarCajaAperturada(cajero.getId(), tenantId);
 
         BigDecimal monto = dto.getMonto().setScale(2, RoundingMode.HALF_UP);
+        if (monto.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Error Financiero: El monto de retiro debe ser mayor a cero.");
+        }
 
         // Control UAFE/SEPS: Declaración de Origen de Fondos obligatoria para montos mayores a $10,000 USD
         BigDecimal limiteUafe = new BigDecimal("10000.00");
@@ -1352,7 +1362,7 @@ public class CuentasAhorrosService {
         int count = 0;
         for (CuentasAhorros cuenta : vencidas) {
             try {
-                procesarVencimientoIndividual(cuenta, fecha);
+                self.procesarVencimientoIndividual(cuenta, fecha);
                 count++;
             } catch (Exception e) {
                 log.error("Error al procesar vencimiento individual de cuenta ID: " + cuenta.getId() + ". Detalle: " + e.getMessage(), e);
@@ -1361,7 +1371,7 @@ public class CuentasAhorrosService {
         return count;
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void procesarVencimientoIndividual(CuentasAhorros cuenta, java.time.LocalDate fecha) {
         Integer tenantId = TenantContext.getCurrentTenant();
         

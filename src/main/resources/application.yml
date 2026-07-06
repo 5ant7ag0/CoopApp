@@ -3,9 +3,9 @@ spring:
     name: backend-core
 
   datasource:
-    url: jdbc:postgresql://localhost:5433/core_cooperativa?stringtype=unspecified
-    username: core_admin
-    password: CoopSF2026!
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/core_cooperativa?stringtype=unspecified}
+    username: ${DB_USERNAME:core_admin}
+    password: ${DB_PASSWORD:CoopSF2026!}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -35,4 +35,4 @@ app:
 
 resend:
   api-key: ${RESEND_API_KEY:}
-  from-email: info@coop.istechec.com
+  from-email: ${RESEND_FROM_EMAIL:info@coop.istechec.com}

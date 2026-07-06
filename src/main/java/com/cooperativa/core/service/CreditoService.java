@@ -86,7 +86,7 @@ public class CreditoService {
     // ==========================================
 
     @Transactional(rollbackFor = Exception.class)
-    public Credito crearSolicitud(Credito credito, boolean presencial) {
+    public Credito crearSolicitud(Credito credito, boolean presencial, String authUsername, String authRol) {
         Integer tenantId = TenantContext.getCurrentTenant();
         if (tenantId == null) {
             throw new IllegalStateException("Error de Seguridad: No se puede crear una solicitud de crédito sin un X-Tenant-ID definido.");
@@ -95,6 +95,16 @@ public class CreditoService {
         if (credito.getSocio() == null || credito.getSocio().getId() == null) {
             throw new IllegalArgumentException("Error: El socio es obligatorio.");
         }
+
+        Socio socio = socioRepository.findById(credito.getSocio().getId())
+                .filter(s -> s.getEmpresaId().equals(tenantId))
+                .orElseThrow(() -> new IllegalArgumentException("Error: Socio no encontrado."));
+
+        if ("SOCIO".equals(authRol) && !socio.getIdentificacion().equals(authUsername)) {
+            throw new SecurityException("Error de Seguridad: Acceso denegado. No posee permisos para solicitar un crédito para otro socio.");
+        }
+
+        credito.setSocio(socio);
 
         if (credito.getProductoCredito() == null || credito.getProductoCredito().getId() == null) {
             throw new IllegalArgumentException("Error: El producto de crédito es obligatorio.");
@@ -365,6 +375,10 @@ public class CreditoService {
     public Credito registrarPago(PagoRequestDTO pagoDTO, String authUsername, String authRol, String ipUsuario, String dispositivo) {
         if (authUsername == null || authRol == null) {
             throw new SecurityException("Error de Seguridad: Contexto de seguridad incompleto.");
+        }
+
+        if (pagoDTO.getMonto() == null || pagoDTO.getMonto().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Error Financiero: El monto a pagar debe ser mayor a cero.");
         }
 
         Integer tenantId = TenantContext.getCurrentTenant();

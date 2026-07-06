@@ -21,16 +21,19 @@ public class ProductoAhorroController {
     private ProductoAhorroService productoAhorroService;
 
     @GetMapping
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "CONTADOR", "SUPER_ADMIN_SAAS", "OFICIAL_DE_CREDITO", "CAJERO", "AUDITOR_INTERNO"})
     public ResponseEntity<List<ProductoAhorro>> listar() {
         return ResponseEntity.ok(productoAhorroService.obtenerTodos());
     }
 
     @GetMapping("/activos")
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "CONTADOR", "SUPER_ADMIN_SAAS", "OFICIAL_DE_CREDITO", "CAJERO", "AUDITOR_INTERNO", "SOCIO"})
     public ResponseEntity<List<ProductoAhorro>> listarActivos() {
         return ResponseEntity.ok(productoAhorroService.obtenerActivos());
     }
 
     @GetMapping("/{id}")
+    @RequiresRoles({"ADMINISTRADOR", "GERENTE_GENERAL", "CONTADOR", "SUPER_ADMIN_SAAS", "OFICIAL_DE_CREDITO", "CAJERO", "AUDITOR_INTERNO", "SOCIO"})
     public ResponseEntity<ProductoAhorro> obtenerPorId(@PathVariable Integer id) {
         try {
             return ResponseEntity.ok(productoAhorroService.obtenerPorId(id));

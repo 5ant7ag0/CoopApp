@@ -48,9 +48,15 @@ public class CuentasAhorrosController {
 
     @GetMapping("/{id}")
     @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "SOCIO"})
-    public ResponseEntity<?> obtenerPorId(@PathVariable Integer id) {
+    public ResponseEntity<?> obtenerPorId(@PathVariable Integer id, HttpServletRequest request) {
+        String username = (String) request.getAttribute("authUsername");
+        String rol = (String) request.getAttribute("authRol");
         try {
-            return ResponseEntity.ok(cuentasAhorrosService.obtenerPorId(id));
+            CuentasAhorros cuenta = cuentasAhorrosService.obtenerPorId(id);
+            if ("SOCIO".equals(rol) && !cuenta.getSocio().getIdentificacion().equals(username)) {
+                return ResponseEntity.status(403).body("Error de Seguridad: Acceso denegado. No es propietario de la cuenta solicitada.");
+            }
+            return ResponseEntity.ok(cuenta);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

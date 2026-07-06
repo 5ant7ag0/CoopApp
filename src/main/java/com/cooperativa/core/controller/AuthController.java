@@ -8,6 +8,7 @@ import com.cooperativa.core.dto.CambioClaveRequestDTO;
 import com.cooperativa.core.dto.SolicitudRecuperacionDTO;
 import com.cooperativa.core.dto.RestablecerClaveRequestDTO;
 import com.cooperativa.core.security.PublicEndpoint;
+import com.cooperativa.core.security.RequiresRoles;
 import com.cooperativa.core.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -93,6 +94,7 @@ public class AuthController {
      * Obtiene la informacion del perfil del usuario autenticado actual.
      */
     @GetMapping("/me")
+    @RequiresRoles({"SUPER_ADMIN_SAAS", "GERENTE_GENERAL", "OFICIAL_DE_CREDITO", "CAJERO", "AUDITOR_INTERNO", "CONTADOR", "SOCIO"})
     public ResponseEntity<?> me(HttpServletRequest request) {
         try {
             String username = (String) request.getAttribute("authUsername");
@@ -112,6 +114,7 @@ public class AuthController {
      * Cierre de sesion e invalidacion del token en base de datos.
      */
     @PostMapping("/logout")
+    @RequiresRoles({"SUPER_ADMIN_SAAS", "GERENTE_GENERAL", "OFICIAL_DE_CREDITO", "CAJERO", "AUDITOR_INTERNO", "CONTADOR", "SOCIO"})
     public ResponseEntity<?> logout(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
         if (authHeader != null && authHeader.startsWith("Bearer ")) {

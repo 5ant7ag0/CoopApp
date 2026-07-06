@@ -25,6 +25,7 @@ public class EmpresaController {
      * URL: http://localhost:8080/api/v1/empresas/mi-perfil
      */
     @GetMapping("/mi-perfil")
+    @RequiresRoles({"SUPER_ADMIN_SAAS", "GERENTE_GENERAL", "OFICIAL_DE_CREDITO", "CAJERO", "AUDITOR_INTERNO", "CONTADOR", "SOCIO"})
     public ResponseEntity<?> obtenerPerfil() {
         try {
             return ResponseEntity.ok(empresaService.obtenerMiEmpresa());
@@ -132,6 +133,7 @@ public class EmpresaController {
      * Obtener una empresa por su ID.
      */
     @GetMapping("/{id}")
+    @RequiresRoles({"SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> obtenerPorId(@PathVariable Integer id) {
         try {
             return ResponseEntity.ok(empresaService.obtenerPorId(id));
@@ -144,6 +146,7 @@ public class EmpresaController {
      * Actualizar una empresa por su ID.
      */
     @PutMapping("/{id}")
+    @RequiresRoles({"SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> actualizar(@PathVariable Integer id, @RequestBody Empresa empresa) {
         try {
             return ResponseEntity.ok(empresaService.actualizarEmpresa(id, empresa));
@@ -156,6 +159,7 @@ public class EmpresaController {
      * Inactivar (eliminar lógicamente) una empresa por su ID.
      */
     @DeleteMapping("/{id}")
+    @RequiresRoles({"SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> eliminar(@PathVariable Integer id) {
         try {
             empresaService.eliminarEmpresa(id);

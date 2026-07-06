@@ -4,6 +4,7 @@ import com.cooperativa.core.dto.SocioRequestDTO;
 import com.cooperativa.core.service.SocioService;
 import com.cooperativa.core.service.AuthService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +24,20 @@ public class SocioController {
     @Autowired
     private AuthService authService;
 
+    private void validarPropiedadSocio(Integer id, HttpServletRequest request) {
+        String rol = (String) request.getAttribute("authRol");
+        if ("SOCIO".equals(rol)) {
+            String username = (String) request.getAttribute("authUsername");
+            if (username == null) {
+                throw new SecurityException("Error de Seguridad: Contexto de seguridad incompleto.");
+            }
+            com.cooperativa.core.model.Socio socio = socioService.buscarPorIdentificacion(username);
+            if (!socio.getId().equals(id)) {
+                throw new SecurityException("Error de Seguridad: Acceso denegado. No posee permisos para modificar/acceder a este perfil.");
+            }
+        }
+    }
+
     @PostMapping
     @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> crear(@Valid @RequestBody SocioRequestDTO socioDto) {
@@ -34,6 +49,7 @@ public class SocioController {
     }
 
     @GetMapping
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR"})
     public ResponseEntity<?> listarTodos() {
         try {
             return ResponseEntity.ok(socioService.obtenerTodos());
@@ -44,19 +60,29 @@ public class SocioController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> obtenerPorId(@PathVariable Integer id) {
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "CAJERO", "SOCIO"})
+    public ResponseEntity<?> obtenerPorId(@PathVariable Integer id, HttpServletRequest request) {
         try {
+            validarPropiedadSocio(id, request);
             return ResponseEntity.ok(socioService.obtenerPorId(id));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 
     @PutMapping("/{id}")
-    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
-    public ResponseEntity<?> actualizar(@PathVariable Integer id, @Valid @RequestBody SocioRequestDTO socioDto) {
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "SOCIO"})
+    public ResponseEntity<?> actualizar(
+            @PathVariable Integer id, 
+            @Valid @RequestBody SocioRequestDTO socioDto,
+            HttpServletRequest request) {
         try {
+            validarPropiedadSocio(id, request);
             return ResponseEntity.ok(socioService.actualizarSocio(id, socioDto));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -64,10 +90,16 @@ public class SocioController {
 
     @PostMapping("/{id}/avatar")
     @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "SOCIO"})
-    public ResponseEntity<?> subirAvatar(@PathVariable Integer id, @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<?> subirAvatar(
+            @PathVariable Integer id, 
+            @RequestParam("file") MultipartFile file,
+            HttpServletRequest request) {
         try {
+            validarPropiedadSocio(id, request);
             String avatarUrl = socioService.guardarAvatar(id, file);
             return ResponseEntity.ok(java.util.Map.of("avatarUrl", avatarUrl));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -78,7 +110,7 @@ public class SocioController {
     public ResponseEntity<?> subirCedulaFrontal(
             @PathVariable Integer id, 
             @RequestParam("file") MultipartFile file,
-            jakarta.servlet.http.HttpServletRequest request) {
+            HttpServletRequest request) {
         try {
             String username = (String) request.getAttribute("authUsername");
             String ip = request.getRemoteAddr();
@@ -95,7 +127,7 @@ public class SocioController {
     public ResponseEntity<?> subirCedulaPosterior(
             @PathVariable Integer id, 
             @RequestParam("file") MultipartFile file,
-            jakarta.servlet.http.HttpServletRequest request) {
+            HttpServletRequest request) {
         try {
             String username = (String) request.getAttribute("authUsername");
             String ip = request.getRemoteAddr();
@@ -112,7 +144,7 @@ public class SocioController {
     public ResponseEntity<?> subirFirma(
             @PathVariable Integer id, 
             @RequestParam("file") MultipartFile file,
-            jakarta.servlet.http.HttpServletRequest request) {
+            HttpServletRequest request) {
         try {
             String username = (String) request.getAttribute("authUsername");
             String ip = request.getRemoteAddr();
@@ -126,10 +158,15 @@ public class SocioController {
 
     @DeleteMapping("/{id}/avatar")
     @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "SOCIO"})
-    public ResponseEntity<?> eliminarAvatar(@PathVariable Integer id) {
+    public ResponseEntity<?> eliminarAvatar(
+            @PathVariable Integer id,
+            HttpServletRequest request) {
         try {
+            validarPropiedadSocio(id, request);
             socioService.eliminarAvatar(id);
             return ResponseEntity.ok("Foto de perfil eliminada correctamente.");
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -150,7 +187,7 @@ public class SocioController {
     @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
     public ResponseEntity<?> enviarRestablecimiento(
             @PathVariable Integer id,
-            jakarta.servlet.http.HttpServletRequest request) {
+            HttpServletRequest request) {
         try {
             String ip = request.getRemoteAddr();
             String userAgent = request.getHeader("User-Agent");
@@ -162,6 +199,7 @@ public class SocioController {
     }
 
     @GetMapping("/buscar")
+    @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CAJERO"})
     public ResponseEntity<?> buscar(@RequestParam String identificacion) {
         try {
             return ResponseEntity.ok(socioService.buscarPorIdentificacion(identificacion));
