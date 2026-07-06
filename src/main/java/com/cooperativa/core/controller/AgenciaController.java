@@ -12,7 +12,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/agencias")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
+
 public class AgenciaController {
 
     private final AgenciaService agenciaService;

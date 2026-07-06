@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/auditoria")
 @RequiresRoles({"AUDITOR_INTERNO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
-@CrossOrigin(origins = "*")
+
 public class AuditoriaController {
 
     @Autowired

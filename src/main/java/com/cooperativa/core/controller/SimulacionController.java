@@ -11,7 +11,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/creditos")
-@CrossOrigin(origins = "*") // Permite la conexión temporal desde simuladores de React Native y Web
+
 @com.cooperativa.core.security.PublicEndpoint
 public class SimulacionController {
 

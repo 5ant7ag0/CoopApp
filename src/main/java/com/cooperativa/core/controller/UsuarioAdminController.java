@@ -17,7 +17,7 @@ import com.cooperativa.core.security.RequiresRoles;
 
 @RestController
 @RequestMapping("/usuarios")
-@CrossOrigin(origins = "*")
+
 @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
 public class UsuarioAdminController {
 

@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/intereses")
 @RequiresRoles({"GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
-@CrossOrigin(origins = "*")
+
 public class InteresController {
 
     @Autowired

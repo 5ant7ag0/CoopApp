@@ -35,6 +35,17 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .allowedOrigins("*")
                 .allowedMethods("GET", "OPTIONS")
                 .allowedHeaders("*");
+
+        String allowedOriginsEnv = System.getenv("CORS_ALLOWED_ORIGINS");
+        String[] origins = (allowedOriginsEnv != null && !allowedOriginsEnv.trim().isEmpty())
+                ? allowedOriginsEnv.split(",")
+                : new String[] { "http://localhost:5173", "http://127.0.0.1:5173" };
+
+        registry.addMapping("/**")
+                .allowedOrigins(origins)
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
+                .allowedHeaders("*")
+                .allowCredentials(true);
     }
 
     @Override

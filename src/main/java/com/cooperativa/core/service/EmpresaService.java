@@ -35,6 +35,9 @@ public class EmpresaService {
     @Autowired
     private com.cooperativa.core.repository.UsuarioAdminRepository usuarioAdminRepository;
 
+    @Autowired
+    private S3Service s3Service;
+
     // ACTUALIZAR LA CONFIGURACIÓN DE LA COOPERATIVA ACTIVA (tenant)
     @Transactional
     public Empresa actualizarMiEmpresa(Empresa datosNuevos, String username, String ip, String dispositivo) {
@@ -269,39 +272,7 @@ public class EmpresaService {
             throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan logos en formato JPG y PNG.");
         }
 
-        // Crear el directorio uploads/logos si no existe
-        String uploadDir = System.getProperty("user.dir") + "/uploads/logos/";
-        java.io.File dir = new java.io.File(uploadDir);
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-
-        // Obtener extensión
-        String originalFilename = file.getOriginalFilename();
-        String extension = "png";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
-        }
-
-        // Generar nombre único
-        String filename = "logo_" + tenantId + "_" + System.currentTimeMillis() + "." + extension;
-        java.io.File destFile = new java.io.File(dir, filename);
-
-        // Limpiar logos previos del mismo tenant
-        java.io.File[] files = dir.listFiles();
-        if (files != null) {
-            for (java.io.File f : files) {
-                if (f.getName().startsWith("logo_" + tenantId + "_")) {
-                    f.delete();
-                }
-            }
-        }
-
-        // Guardar archivo físico
-        file.transferTo(destFile);
-
-        // Guardar ruta en la base de datos
-        String logoUrl = "/uploads/logos/" + filename;
+        String logoUrl = s3Service.subirArchivo(file, "logos", "logo_" + tenantId);
         
         // Registrar cambio en auditoría para logoUrl
         com.cooperativa.core.model.LogsAuditoria log = new com.cooperativa.core.model.LogsAuditoria();

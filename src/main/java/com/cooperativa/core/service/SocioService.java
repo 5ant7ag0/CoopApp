@@ -47,6 +47,9 @@ public class SocioService {
     private CreditoRepository creditoRepository;
 
     @Autowired
+    private S3Service s3Service;
+
+    @Autowired
     private com.cooperativa.core.repository.EmpresaRepository empresaRepository;
 
     // CREAR UN NUEVO SOCIO
@@ -268,39 +271,7 @@ public class SocioService {
             throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan imagenes JPG y PNG.");
         }
 
-        // Crear el directorio uploads/perfil si no existe
-        String uploadDir = System.getProperty("user.dir") + "/uploads/perfil/";
-        java.io.File dir = new java.io.File(uploadDir);
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-
-        // Obtener extension
-        String originalFilename = file.getOriginalFilename();
-        String extension = "jpg";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
-        }
-
-        // Generar nombre unico para romper cache
-        String filename = "socio_" + id + "_" + System.currentTimeMillis() + "." + extension;
-        java.io.File destFile = new java.io.File(dir, filename);
-
-        // Limpiar fotos previas del mismo socio
-        java.io.File[] files = dir.listFiles();
-        if (files != null) {
-            for (java.io.File f : files) {
-                if (f.getName().startsWith("socio_" + id + "_")) {
-                    f.delete();
-                }
-            }
-        }
-
-        // Guardar archivo fisico
-        file.transferTo(destFile);
-
-        // Guardar ruta corta en la base de datos
-        String avatarUrl = "/uploads/perfil/" + filename;
+        String avatarUrl = s3Service.subirArchivo(file, "perfil", "socio_" + id);
         socio.setFotoPerfilUrl(avatarUrl);
         socioRepository.save(socio);
 
@@ -327,35 +298,7 @@ public class SocioService {
             throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan archivos PDF, JPG y PNG.");
         }
 
-        // Crear el directorio uploads/kyc si no existe
-        String uploadDir = System.getProperty("user.dir") + "/uploads/kyc/";
-        java.io.File dir = new java.io.File(uploadDir);
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-
-        String originalFilename = file.getOriginalFilename();
-        String extension = "jpg";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
-        }
-
-        String filename = socio.getIdentificacion() + "_frontal_" + System.currentTimeMillis() + "." + extension;
-        java.io.File destFile = new java.io.File(dir, filename);
-
-        // Limpiar fotos previas de la cedula frontal del mismo socio
-        java.io.File[] files = dir.listFiles();
-        if (files != null) {
-            for (java.io.File f : files) {
-                if (f.getName().startsWith(socio.getIdentificacion() + "_frontal_")) {
-                    f.delete();
-                }
-            }
-        }
-
-        file.transferTo(destFile);
-
-        String url = "/uploads/kyc/" + filename;
+        String url = s3Service.subirArchivo(file, "kyc", socio.getIdentificacion() + "_frontal");
         String valorAnterior = socio.getFotoCedulaFrontalUrl();
         socio.setFotoCedulaFrontalUrl(url);
         socioRepository.save(socio);
@@ -388,35 +331,7 @@ public class SocioService {
             throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan archivos PDF, JPG y PNG.");
         }
 
-        // Crear el directorio uploads/kyc si no existe
-        String uploadDir = System.getProperty("user.dir") + "/uploads/kyc/";
-        java.io.File dir = new java.io.File(uploadDir);
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-
-        String originalFilename = file.getOriginalFilename();
-        String extension = "jpg";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
-        }
-
-        String filename = socio.getIdentificacion() + "_posterior_" + System.currentTimeMillis() + "." + extension;
-        java.io.File destFile = new java.io.File(dir, filename);
-
-        // Limpiar fotos previas de la cedula posterior del mismo socio
-        java.io.File[] files = dir.listFiles();
-        if (files != null) {
-            for (java.io.File f : files) {
-                if (f.getName().startsWith(socio.getIdentificacion() + "_posterior_")) {
-                    f.delete();
-                }
-            }
-        }
-
-        file.transferTo(destFile);
-
-        String url = "/uploads/kyc/" + filename;
+        String url = s3Service.subirArchivo(file, "kyc", socio.getIdentificacion() + "_posterior");
         String valorAnterior = socio.getFotoCedulaPosteriorUrl();
         socio.setFotoCedulaPosteriorUrl(url);
         socioRepository.save(socio);
@@ -447,35 +362,7 @@ public class SocioService {
             throw new IllegalArgumentException("Error: Formato de archivo no permitido. Solo se aceptan imagenes JPG y PNG.");
         }
 
-        // Crear el directorio uploads/kyc si no existe
-        String uploadDir = System.getProperty("user.dir") + "/uploads/kyc/";
-        java.io.File dir = new java.io.File(uploadDir);
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-
-        String originalFilename = file.getOriginalFilename();
-        String extension = "jpg";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
-        }
-
-        String filename = socio.getIdentificacion() + "_firma_" + System.currentTimeMillis() + "." + extension;
-        java.io.File destFile = new java.io.File(dir, filename);
-
-        // Limpiar fotos previas de la firma del mismo socio
-        java.io.File[] files = dir.listFiles();
-        if (files != null) {
-            for (java.io.File f : files) {
-                if (f.getName().startsWith(socio.getIdentificacion() + "_firma_")) {
-                    f.delete();
-                }
-            }
-        }
-
-        file.transferTo(destFile);
-
-        String url = "/uploads/kyc/" + filename;
+        String url = s3Service.subirArchivo(file, "kyc", socio.getIdentificacion() + "_firma");
         String valorAnterior = socio.getFirmaUrl();
         socio.setFirmaUrl(url);
         socioRepository.save(socio);

@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/superadmin")
 @SuperAdminOnly
-@CrossOrigin(origins = "*")
+
 public class SuperAdminController {
 
     @Autowired

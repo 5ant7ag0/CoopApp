@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/cuentas")
-@CrossOrigin(origins = "*")
 public class CuentasAhorrosController {
 
     @Autowired

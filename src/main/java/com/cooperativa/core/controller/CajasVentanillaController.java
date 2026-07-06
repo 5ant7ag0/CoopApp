@@ -12,7 +12,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/cajas-ventanilla")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
+
 public class CajasVentanillaController {
 
     private final CajasVentanillaService cajasService;

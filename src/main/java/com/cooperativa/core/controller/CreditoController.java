@@ -15,7 +15,6 @@ import com.cooperativa.core.security.RequiresRoles;
 
 @RestController
 @RequestMapping("/creditos")
-@CrossOrigin(origins = "*")
 public class CreditoController {
 
     @Autowired

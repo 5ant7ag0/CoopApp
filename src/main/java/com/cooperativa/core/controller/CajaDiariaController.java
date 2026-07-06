@@ -14,7 +14,7 @@ import com.cooperativa.core.security.RequiresRoles;
 
 @RestController
 @RequestMapping("/cajas")
-@CrossOrigin(origins = "*")
+
 @RequiresRoles({"CAJERO"})
 public class CajaDiariaController {
 

@@ -9,7 +9,7 @@ import com.cooperativa.core.security.RequiresRoles;
 
 @RestController
 @RequestMapping("/contabilidad")
-@CrossOrigin(origins = "*")
+
 @RequiresRoles({"CONTADOR", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS"})
 public class ContabilidadController {
 
