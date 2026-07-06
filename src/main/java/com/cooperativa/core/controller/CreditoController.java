@@ -164,6 +164,26 @@ public class CreditoController {
         }
     }
 
+    @PostMapping("/{id}/pagar")
+    @RequiresRoles({"CAJERO", "SOCIO"})
+    public ResponseEntity<?> pagarConIdEnRuta(
+            @PathVariable Integer id,
+            @RequestBody java.util.Map<String, Object> payload,
+            HttpServletRequest request) {
+        
+        PagoRequestDTO requestDTO = new PagoRequestDTO();
+        requestDTO.setCreditoId(id);
+        requestDTO.setOrigenFondos("CUENTA");
+        if (payload.get("cuentaAhorrosId") != null) {
+            requestDTO.setCuentaAhorrosId(((Number) payload.get("cuentaAhorrosId")).intValue());
+        }
+        if (payload.get("monto") != null) {
+            requestDTO.setMonto(new java.math.BigDecimal(payload.get("monto").toString()));
+        }
+        
+        return pagar(requestDTO, request);
+    }
+
     @GetMapping("/{id}/amortizacion")
     @RequiresRoles({"OFICIAL_DE_CREDITO", "GERENTE_GENERAL", "SUPER_ADMIN_SAAS", "CONTADOR", "SOCIO", "CAJERO"})
     public ResponseEntity<?> obtenerAmortizacion(@PathVariable Integer id, HttpServletRequest request) {
