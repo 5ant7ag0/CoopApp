@@ -72,7 +72,7 @@ public class TenantSeedingService {
 
         // Despachar correo de bienvenida con enlace seguro al correo personal del Representante Legal
         if (savedEmpresa.getCorreoGerente() != null && !savedEmpresa.getCorreoGerente().isEmpty()) {
-            String linkActivacion = frontendUrl + "/recuperar-clave?token=" + tokenRaw + "&identificacion=" + admin.getUsername();
+            String linkActivacion = frontendUrl + "/recuperar-clave?token=" + tokenRaw + "&identificacion=" + admin.getUsername() + "&tenantId=" + savedEmpresa.getId();
             notificacionService.enviarCredencialesSaaS(
                 savedEmpresa.getCorreoGerente(), 
                 savedEmpresa.getRazonSocial(), 

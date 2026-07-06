@@ -64,7 +64,7 @@ public class NotificacionService {
         if (isOtp) {
             cuerpo = templateBuilder.buildOtpBlock(token);
         } else {
-            cuerpo = templateBuilder.buildLinkButton(frontendUrl + "/recuperar-clave-socio?token=" + token + "&identificacion=" + socio.getIdentificacion(), "Restablecer Contraseña");
+            cuerpo = templateBuilder.buildLinkButton(frontendUrl + "/recuperar-clave-socio?token=" + token + "&identificacion=" + socio.getIdentificacion() + "&tenantId=" + socio.getEmpresaId(), "Restablecer Contraseña");
         }
         
         String notaPie = "Este " + (isOtp ? "código" : "enlace") + " es de uso único y expirará en 15 minutos.";

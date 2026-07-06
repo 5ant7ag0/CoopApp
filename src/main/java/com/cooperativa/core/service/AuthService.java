@@ -697,7 +697,7 @@ public class AuthService {
         );
 
         // Enviar notificación simulando un envío seguro
-        String link = frontendUrl + "/recuperar-clave?token=" + tokenRaw + "&identificacion=" + gerente.getUsername();
+        String link = frontendUrl + "/recuperar-clave?token=" + tokenRaw + "&identificacion=" + gerente.getUsername() + "&tenantId=" + tenantId;
         
         notificacionService.enviarRecuperacionCorreoAdmin(gerente, link);
 
