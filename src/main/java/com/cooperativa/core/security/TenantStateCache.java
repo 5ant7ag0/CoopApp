@@ -4,6 +4,7 @@ import com.cooperativa.core.model.TenantEstado;
 import com.cooperativa.core.repository.EmpresaRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.DependsOn;
 import jakarta.annotation.PostConstruct;
 
 import java.util.Set;
@@ -15,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * sin afectar el rendimiento de validación del token JWT (latencia O(1)).
  */
 @Component
+@DependsOn("flyway")
 public class TenantStateCache {
 
     // Conjunto de IDs de empresas (Tenants) que han sido suspendidos.
