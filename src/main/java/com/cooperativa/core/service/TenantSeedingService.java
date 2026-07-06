@@ -78,81 +78,126 @@ public class TenantSeedingService {
             );
         }
 
-        // 5. Inyectar el Plan de Cuentas base SEPS y configurar los enlaces contables
-        sembrarPlanCuentasDefecto(savedEmpresa.getId());
+        // 5. Clonar Plan de Cuentas, Productos contables y enlaces desde el Tenant Plantilla (ID = 1)
+        clonarDesdeTenantPlantilla(1, savedEmpresa.getId());
     }
 
-    private void sembrarPlanCuentasDefecto(Integer empresaId) {
-        Integer cajaId = null;
-        Integer carteraId = null;
-        Integer obligacionesId = null;
-        Integer aportacionesId = null;
-        Integer seguroId = null;
-        Integer gastosInteresesId = null;
-        Integer ingresosInteresesId = null;
-        Integer moraId = null;
+    private void clonarDesdeTenantPlantilla(Integer templateTenantId, Integer newEmpresaId) {
+        // 1. Clonar plan_cuentas
+        java.util.List<java.util.Map<String, Object>> oldCuentas = jdbcTemplate.queryForList(
+            "SELECT id, codigo_contable, nombre_cuenta, tipo_cuenta, es_movimiento, estado FROM plan_cuentas WHERE empresa_id = ?",
+            templateTenantId
+        );
+        java.util.Map<Integer, Integer> planCuentasMap = new java.util.HashMap<>();
+        for (java.util.Map<String, Object> cuenta : oldCuentas) {
+            Integer oldId = ((Number) cuenta.get("id")).intValue();
+            String codigo = (String) cuenta.get("codigo_contable");
+            String nombre = (String) cuenta.get("nombre_cuenta");
+            String tipo = (String) cuenta.get("tipo_cuenta");
+            Boolean esMovimiento = (Boolean) cuenta.get("es_movimiento");
+            String estado = (String) cuenta.get("estado");
 
-        String[][] cuentasDefecto = {
-            {"1", "ACTIVOS", "ACTIVO", "false"},
-            {"1.1", "FONDOS DISPONIBLES", "ACTIVO", "false"},
-            {"1.1.01", "CAJA", "ACTIVO", "false"},
-            {"1.1.01.05", "Caja General Ventanilla", "ACTIVO", "true"},
-            {"1.4", "CARTERA DE CREDITOS", "ACTIVO", "false"},
-            {"1.4.01", "Cartera de Créditos por Desembolsar", "ACTIVO", "true"},
-            {"1.4.02", "Cartera de Créditos Vigente", "ACTIVO", "true"},
-            
-            {"2", "PASIVOS", "PASIVO", "false"},
-            {"2.1", "OBLIGACIONES CON EL PUBLICO", "PASIVO", "false"},
-            {"2.1.01", "DEPOSITOS A LA VISTA", "PASIVO", "false"},
-            {"2.1.01.05", "Cuentas de Ahorros de Socios", "PASIVO", "true"},
-            
-            {"3", "PATRIMONIO", "PATRIMONIO", "false"},
-            {"3.1", "CAPITAL SOCIAL", "PATRIMONIO", "false"},
-            {"3.1.01", "Capital Social Numerario", "PATRIMONIO", "false"},
-            {"3.1.01.05", "Aportaciones Obligatorias de Socios", "PATRIMONIO", "true"},
-            
-            {"4", "GASTOS", "GASTO", "false"},
-            {"4.1", "GASTOS FINANCIEROS", "GASTO", "false"},
-            {"4.1.01", "Gastos por Intereses de Depósitos", "GASTO", "true"},
-            {"4.1.02", "Gastos por Seguros y Papelería", "GASTO", "true"},
-            
-            {"5", "INGRESOS", "INGRESO", "false"},
-            {"5.1", "INGRESOS FINANCIEROS", "INGRESO", "false"},
-            {"5.1.01", "INGRESOS POR INTERESES DE CARTERA", "INGRESO", "false"},
-            {"5.1.01.05", "Intereses Cartera de Créditos Vigente", "INGRESO", "true"},
-            {"5.1.02", "INGRESOS POR INTERESES DE MORA", "INGRESO", "false"},
-            {"5.1.02.05", "Intereses por Mora de Cartera", "INGRESO", "true"}
-        };
-
-        for (String[] def : cuentasDefecto) {
-            Integer cuentaId = jdbcTemplate.queryForObject(
+            Integer newId = jdbcTemplate.queryForObject(
                 "INSERT INTO plan_cuentas (empresa_id, codigo_contable, nombre_cuenta, tipo_cuenta, es_movimiento, estado, created_at) " +
                 "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) RETURNING id",
                 Integer.class,
-                empresaId, def[0], def[1], def[2], Boolean.parseBoolean(def[3]), "ACTIVO"
+                newEmpresaId, codigo, nombre, tipo, esMovimiento, estado
             );
-            String codigo = def[0];
-
-            if ("1.1.01.05".equals(codigo)) cajaId = cuentaId;
-            else if ("1.4.01".equals(codigo)) carteraId = cuentaId;
-            else if ("2.1.01.05".equals(codigo)) obligacionesId = cuentaId;
-            else if ("3.1.01.05".equals(codigo)) aportacionesId = cuentaId;
-            else if ("4.1.02".equals(codigo)) seguroId = cuentaId;
-            else if ("4.1.01".equals(codigo)) gastosInteresesId = cuentaId;
-            else if ("5.1.01.05".equals(codigo)) ingresosInteresesId = cuentaId;
-            else if ("5.1.02.05".equals(codigo)) moraId = cuentaId;
+            planCuentasMap.put(oldId, newId);
         }
 
-        // Vincular las cuentas creadas con la configuración funcional contable de la empresa
+        // 2. Clonar productos_ahorro
+        java.util.List<java.util.Map<String, Object>> oldProdAhorro = jdbcTemplate.queryForList(
+            "SELECT id, nombre, tipo_producto, tasa_interes_anual, monto_minimo_apertura, saldo_minimo_requerido, tipo_retiro, tasa_penalizacion_retiro, cuenta_contable_pasivo_id, cuenta_contable_gasto_id, estado FROM productos_ahorro WHERE empresa_id = ?",
+            templateTenantId
+        );
+        for (java.util.Map<String, Object> prod : oldProdAhorro) {
+            String nombre = (String) prod.get("nombre");
+            String tipoProd = (String) prod.get("tipo_producto");
+            java.math.BigDecimal tasaInteres = (java.math.BigDecimal) prod.get("tasa_interes_anual");
+            java.math.BigDecimal montoMin = (java.math.BigDecimal) prod.get("monto_minimo_apertura");
+            java.math.BigDecimal saldoMin = (java.math.BigDecimal) prod.get("saldo_minimo_requerido");
+            String tipoRetiro = (String) prod.get("tipo_retiro");
+            java.math.BigDecimal tasaPenalizacion = (java.math.BigDecimal) prod.get("tasa_penalizacion_retiro");
+            Integer oldPasivoId = ((Number) prod.get("cuenta_contable_pasivo_id")).intValue();
+            Integer oldGastoId = ((Number) prod.get("cuenta_contable_gasto_id")).intValue();
+            String estado = (String) prod.get("estado");
+
+            Integer newPasivoId = planCuentasMap.get(oldPasivoId);
+            Integer newGastoId = planCuentasMap.get(oldGastoId);
+
+            jdbcTemplate.update(
+                "INSERT INTO productos_ahorro (empresa_id, nombre, tipo_producto, tasa_interes_anual, monto_minimo_apertura, saldo_minimo_requerido, tipo_retiro, tasa_penalizacion_retiro, cuenta_contable_pasivo_id, cuenta_contable_gasto_id, estado, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                newEmpresaId, nombre, tipoProd, tasaInteres, montoMin, saldoMin, tipoRetiro, tasaPenalizacion, newPasivoId, newGastoId, estado
+            );
+        }
+
+        // 3. Clonar productos_credito
+        java.util.List<java.util.Map<String, Object>> oldProdCredito = jdbcTemplate.queryForList(
+            "SELECT id, nombre, monto_minimo, monto_maximo, plazo_minimo_meses, plazo_maximo_meses, tasa_interes_anual, tasa_mora_anual, porcentaje_seguro_desgravamen, cuenta_contable_cartera_id, cuenta_contable_ingresos_intereses_id, cuenta_contable_mora_id, cuenta_contable_seguro_id, estado FROM productos_credito WHERE empresa_id = ?",
+            templateTenantId
+        );
+        for (java.util.Map<String, Object> prod : oldProdCredito) {
+            String nombre = (String) prod.get("nombre");
+            java.math.BigDecimal montoMin = (java.math.BigDecimal) prod.get("monto_minimo");
+            java.math.BigDecimal montoMax = (java.math.BigDecimal) prod.get("monto_maximo");
+            Integer plazoMin = ((Number) prod.get("plazo_minimo_meses")).intValue();
+            Integer plazoMax = ((Number) prod.get("plazo_maximo_meses")).intValue();
+            java.math.BigDecimal tasaInteres = (java.math.BigDecimal) prod.get("tasa_interes_anual");
+            java.math.BigDecimal tasaMora = (java.math.BigDecimal) prod.get("tasa_mora_anual");
+            java.math.BigDecimal pctSeguro = (java.math.BigDecimal) prod.get("porcentaje_seguro_desgravamen");
+            Integer oldCarteraId = ((Number) prod.get("cuenta_contable_cartera_id")).intValue();
+            Integer oldIngresosId = ((Number) prod.get("cuenta_contable_ingresos_intereses_id")).intValue();
+            Integer oldMoraId = ((Number) prod.get("cuenta_contable_mora_id")).intValue();
+            Number oldSeguroNum = (Number) prod.get("cuenta_contable_seguro_id");
+            Integer oldSeguroId = oldSeguroNum != null ? oldSeguroNum.intValue() : null;
+            String estado = (String) prod.get("estado");
+
+            Integer newCarteraId = planCuentasMap.get(oldCarteraId);
+            Integer newIngresosId = planCuentasMap.get(oldIngresosId);
+            Integer newMoraId = planCuentasMap.get(oldMoraId);
+            Integer newSeguroId = oldSeguroId != null ? planCuentasMap.get(oldSeguroId) : null;
+
+            jdbcTemplate.update(
+                "INSERT INTO productos_credito (empresa_id, nombre, monto_minimo, monto_maximo, plazo_minimo_meses, plazo_maximo_meses, tasa_interes_anual, tasa_mora_anual, porcentaje_seguro_desgravamen, cuenta_contable_cartera_id, cuenta_contable_ingresos_intereses_id, cuenta_contable_mora_id, cuenta_contable_seguro_id, estado, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                newEmpresaId, nombre, montoMin, montoMax, plazoMin, plazoMax, tasaInteres, tasaMora, pctSeguro, newCarteraId, newIngresosId, newMoraId, newSeguroId, estado
+            );
+        }
+
+        // 4. Copiar enlaces contables de la empresa plantilla
+        java.util.Map<String, Object> templateEmpresa = jdbcTemplate.queryForMap(
+            "SELECT cuenta_contable_caja_id, cuenta_contable_cartera_id, cuenta_contable_obligaciones_id, " +
+            "cuenta_contable_aportaciones_id, cuenta_contable_seguro_id, cuenta_contable_papeleria_id, " +
+            "cuenta_contable_gastos_intereses_id, cuenta_contable_ingresos_intereses_id, cuenta_contable_mora_id " +
+            "FROM empresas WHERE id = ?",
+            templateTenantId
+        );
+
         jdbcTemplate.update(
             "UPDATE empresas SET cuenta_contable_caja_id = ?, cuenta_contable_cartera_id = ?, " +
             "cuenta_contable_obligaciones_id = ?, cuenta_contable_aportaciones_id = ?, " +
             "cuenta_contable_seguro_id = ?, cuenta_contable_papeleria_id = ?, " +
             "cuenta_contable_gastos_intereses_id = ?, cuenta_contable_ingresos_intereses_id = ?, " +
             "cuenta_contable_mora_id = ? WHERE id = ?",
-            cajaId, carteraId, obligacionesId, aportacionesId, seguroId, seguroId,
-            gastosInteresesId, ingresosInteresesId, moraId, empresaId
+            resolveMapId(templateEmpresa.get("cuenta_contable_caja_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_cartera_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_obligaciones_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_aportaciones_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_seguro_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_papeleria_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_gastos_intereses_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_ingresos_intereses_id"), planCuentasMap),
+            resolveMapId(templateEmpresa.get("cuenta_contable_mora_id"), planCuentasMap),
+            newEmpresaId
         );
+    }
+
+    private Integer resolveMapId(Object oldIdObj, java.util.Map<Integer, Integer> map) {
+        if (oldIdObj == null) return null;
+        Integer oldId = ((Number) oldIdObj).intValue();
+        return map.get(oldId);
     }
 
     private String hashSha256(String base) {
