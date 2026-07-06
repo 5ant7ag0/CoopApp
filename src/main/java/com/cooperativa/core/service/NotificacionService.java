@@ -28,6 +28,9 @@ public class NotificacionService {
     @Value("${resend.from-email}")
     private String fromEmail;
 
+    @Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
     @Autowired
     private EmailTemplateBuilder templateBuilder;
 
@@ -61,7 +64,7 @@ public class NotificacionService {
         if (isOtp) {
             cuerpo = templateBuilder.buildOtpBlock(token);
         } else {
-            cuerpo = templateBuilder.buildLinkButton("http://localhost:5173/recuperar-clave-socio?token=" + token + "&identificacion=" + socio.getIdentificacion(), "Restablecer Contraseña");
+            cuerpo = templateBuilder.buildLinkButton(frontendUrl + "/recuperar-clave-socio?token=" + token + "&identificacion=" + socio.getIdentificacion(), "Restablecer Contraseña");
         }
         
         String notaPie = "Este " + (isOtp ? "código" : "enlace") + " es de uso único y expirará en 15 minutos.";

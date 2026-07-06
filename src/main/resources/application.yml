@@ -35,6 +35,7 @@ server:
 app:
   jwt:
     secret: ${APP_JWT_SECRET}
+  frontend-url: ${APP_FRONTEND_URL:http://localhost:5173}
   s3:
     endpoint: ${S3_ENDPOINT:}
     access-key: ${S3_ACCESS_KEY:}

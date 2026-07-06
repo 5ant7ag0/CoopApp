@@ -52,6 +52,9 @@ public class SocioService {
     @Autowired
     private com.cooperativa.core.repository.EmpresaRepository empresaRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
     // CREAR UN NUEVO SOCIO
     @Transactional(rollbackFor = Exception.class)
     public Socio crearSocio(SocioRequestDTO dto) {
@@ -127,7 +130,7 @@ public class SocioService {
             ? empresa.getNombreComercial().trim()
             : (empresa.getRazonSocial() != null ? empresa.getRazonSocial().trim() : "COOPERATIVA");
 
-        String welcomeLink = "http://localhost:5173/establecer-password?token=" + tokenRaw + "&identificacion=" + socioCreado.getIdentificacion();
+        String welcomeLink = frontendUrl + "/establecer-password?token=" + tokenRaw + "&identificacion=" + socioCreado.getIdentificacion();
         String welcomeHtml = String.format(
             "<!DOCTYPE html><html><head><style>" +
             "body { font-family: Arial, sans-serif; background-color: #f8fafc; color: #1e293b; padding: 20px; }" +

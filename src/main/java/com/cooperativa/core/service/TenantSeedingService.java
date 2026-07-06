@@ -24,6 +24,9 @@ public class TenantSeedingService {
     @Autowired
     private NotificacionService notificacionService;
 
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
     @Transactional(propagation = Propagation.REQUIRED, rollbackFor = Exception.class)
     public void seedTenantData(Empresa savedEmpresa, UsuariosAdmin admin) {
         // 4. Preparar el Administrador Inicial
@@ -69,7 +72,7 @@ public class TenantSeedingService {
 
         // Despachar correo de bienvenida con enlace seguro al correo personal del Representante Legal
         if (savedEmpresa.getCorreoGerente() != null && !savedEmpresa.getCorreoGerente().isEmpty()) {
-            String linkActivacion = "http://localhost:5173/recuperar-clave?token=" + tokenRaw + "&identificacion=" + admin.getUsername();
+            String linkActivacion = frontendUrl + "/recuperar-clave?token=" + tokenRaw + "&identificacion=" + admin.getUsername();
             notificacionService.enviarCredencialesSaaS(
                 savedEmpresa.getCorreoGerente(), 
                 savedEmpresa.getRazonSocial(), 

@@ -67,6 +67,9 @@ public class AuthService {
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
     /**
      * Autenticacion de personal administrativo (Backoffice).
      */
@@ -694,7 +697,7 @@ public class AuthService {
         );
 
         // Enviar notificación simulando un envío seguro
-        String link = "http://localhost:5173/recuperar-clave?token=" + tokenRaw + "&identificacion=" + gerente.getUsername();
+        String link = frontendUrl + "/recuperar-clave?token=" + tokenRaw + "&identificacion=" + gerente.getUsername();
         
         notificacionService.enviarRecuperacionCorreoAdmin(gerente, link);
 
