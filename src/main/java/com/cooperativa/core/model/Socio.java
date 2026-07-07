@@ -88,6 +88,7 @@ public class Socio extends AuditableEntity {
 
     @PrePersist
     public void setDefaults() {
+        super.prePersist();
         if (this.getEstado() == null) {
             this.setEstado("PENDIENTE_APROBACION");
         }
