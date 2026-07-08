@@ -12,7 +12,6 @@ import java.time.LocalDateTime;
 @Table(name = "transacciones_ledger", uniqueConstraints = {
         @UniqueConstraint(columnNames = {"empresa_id", "referencia"})
 })
-@org.hibernate.annotations.Immutable
 public class TransaccionesLedger extends BaseEntity {
 
     @Id
