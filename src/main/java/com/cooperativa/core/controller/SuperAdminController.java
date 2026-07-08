@@ -68,7 +68,8 @@ public class SuperAdminController {
         } catch (com.cooperativa.core.exception.EmpresaDuplicadaException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            String msg = "Error: Conflicto de integridad de datos en el sistema.";
+            e.printStackTrace();
+            String msg = "Error: Conflicto de integridad de datos en el sistema. Detalles: " + (e.getMostSpecificCause() != null ? e.getMostSpecificCause().getMessage() : e.getMessage());
             if (e.getMostSpecificCause() != null && e.getMostSpecificCause().getMessage() != null) {
                 String causeMsg = e.getMostSpecificCause().getMessage().toLowerCase();
                 if (causeMsg.contains("ruc")) {
@@ -85,10 +86,13 @@ public class SuperAdminController {
             }
             return ResponseEntity.status(HttpStatus.CONFLICT).body(msg);
         } catch (IllegalArgumentException e) {
+            e.printStackTrace();
             return ResponseEntity.badRequest().body(e.getMessage());
         } catch (IllegalStateException e) {
+            e.printStackTrace();
             return ResponseEntity.badRequest().body(e.getMessage());
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Error interno durante el proceso de onboarding: " + e.getMessage());
         }
