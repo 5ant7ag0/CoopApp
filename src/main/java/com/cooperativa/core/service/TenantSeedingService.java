@@ -164,7 +164,7 @@ public class TenantSeedingService {
 
             jdbcTemplate.update(
                 "INSERT INTO productos_credito (empresa_id, nombre, monto_minimo, monto_maximo, plazo_minimo_meses, plazo_maximo_meses, tasa_interes_anual, tasa_mora_anual, porcentaje_seguro_desgravamen, cuenta_contable_cartera_id, cuenta_contable_ingresos_intereses_id, cuenta_contable_mora_id, cuenta_contable_seguro_id, estado, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 newEmpresaId, nombre, montoMin, montoMax, plazoMin, plazoMax, tasaInteres, tasaMora, pctSeguro, newCarteraId, newIngresosId, newMoraId, newSeguroId, estado
             );
         }
