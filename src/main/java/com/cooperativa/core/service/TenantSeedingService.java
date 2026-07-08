@@ -81,14 +81,28 @@ public class TenantSeedingService {
             );
         }
 
-        // 5. Clonar Plan de Cuentas, Productos contables y enlaces desde el Tenant Plantilla (ID = 1)
+        // 5. Crear Agencia Matriz por defecto para que la nueva cooperativa pueda crear cajas/ventanillas de inmediato
+        jdbcTemplate.update(
+            "INSERT INTO agencias (codigo, nombre, direccion, estado, empresa_id, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            "001",
+            "Agencia Matriz - " + savedEmpresa.getRazonSocial(),
+            savedEmpresa.getDireccion() != null && !savedEmpresa.getDireccion().trim().isEmpty() 
+                ? savedEmpresa.getDireccion() 
+                : "Dirección Principal",
+            "ACTIVA",
+            savedEmpresa.getId()
+        );
+
+        // 6. Clonar Plan de Cuentas, Productos contables y enlaces desde el Tenant Plantilla (ID = 1)
         clonarDesdeTenantPlantilla(1, savedEmpresa.getId());
     }
 
     private void clonarDesdeTenantPlantilla(Integer templateTenantId, Integer newEmpresaId) {
         // 1. Clonar plan_cuentas
         java.util.List<java.util.Map<String, Object>> oldCuentas = jdbcTemplate.queryForList(
-            "SELECT id, codigo_contable, nombre_cuenta, tipo_cuenta, es_movimiento, estado FROM plan_cuentas WHERE empresa_id = ?",
+            "SELECT id, codigo_contable, nombre_cuenta, tipo_cuenta, es_movimiento, estado FROM plan_cuentas WHERE empresa_id = ? " +
+            "AND (codigo_contable NOT LIKE '1.1.01.%' OR codigo_contable IN ('1.1.01.01', '1.1.01.05'))",
             templateTenantId
         );
         java.util.Map<Integer, Integer> planCuentasMap = new java.util.HashMap<>();
